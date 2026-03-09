@@ -1,0 +1,25 @@
+# Go build outputs
+*.exe
+*.out
+web/nft_panel
+web/web
+
+# Go caches (created when GOCACHE/GOMODCACHE point into project dir)
+.gocache/
+.gomodcache/
+
+# Go test cache
+*.test
+
+# Runtime/config files (generated on first run, contain secrets)
+web/config.toml
+web/*.toml
+
+# nftables rules data (server-side runtime data)
+/root/.nft-forward/
+
+# Editor / OS artefacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

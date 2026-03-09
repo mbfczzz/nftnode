@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>nftables 转发面板 - 登录</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            overflow: hidden;
+        }
+        .bg-animation {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 0; pointer-events: none;
+        }
+        .bg-animation span {
+            position: absolute; display: block; width: 20px; height: 20px;
+            background: rgba(255,255,255,0.04); border-radius: 50%;
+            animation: float 25s linear infinite;
+        }
+        .bg-animation span:nth-child(1){left:25%;width:80px;height:80px;animation-delay:0s;animation-duration:20s}
+        .bg-animation span:nth-child(2){left:10%;width:20px;height:20px;animation-delay:2s;animation-duration:25s}
+        .bg-animation span:nth-child(3){left:70%;width:40px;height:40px;animation-delay:4s;animation-duration:18s}
+        .bg-animation span:nth-child(4){left:40%;width:60px;height:60px;animation-delay:0s;animation-duration:22s}
+        .bg-animation span:nth-child(5){left:65%;width:20px;height:20px;animation-delay:3s;animation-duration:30s}
+        .bg-animation span:nth-child(6){left:85%;width:110px;height:110px;animation-delay:7s;animation-duration:28s}
+        @keyframes float {
+            0% { transform: translateY(100vh) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(-100vh) rotate(720deg); opacity: 0; }
+        }
+
+        .login-card {
+            position: relative; z-index: 1;
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 48px 40px;
+            width: 400px; max-width: 90vw;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+        }
+        .login-card h1 {
+            color: #fff; font-size: 24px; text-align: center;
+            margin-bottom: 8px; font-weight: 600;
+        }
+        .login-card .subtitle {
+            color: rgba(255,255,255,0.5); font-size: 14px;
+            text-align: center; margin-bottom: 36px;
+        }
+        .input-group {
+            position: relative; margin-bottom: 24px;
+        }
+        .input-group .icon {
+            position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+            color: rgba(255,255,255,0.3); font-size: 18px;
+        }
+        .input-group input {
+            width: 100%; padding: 14px 16px 14px 48px;
+            background: rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px; color: #fff; font-size: 15px;
+            outline: none; transition: all 0.3s;
+        }
+        .input-group input::placeholder { color: rgba(255,255,255,0.3); }
+        .input-group input:focus {
+            border-color: #7c5cf7;
+            background: rgba(124,92,247,0.08);
+            box-shadow: 0 0 20px rgba(124,92,247,0.15);
+        }
+        .login-btn {
+            width: 100%; padding: 14px;
+            background: linear-gradient(135deg, #7c5cf7, #6c63ff);
+            border: none; border-radius: 12px;
+            color: #fff; font-size: 16px; font-weight: 600;
+            cursor: pointer; transition: all 0.3s;
+        }
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(124,92,247,0.4);
+        }
+        .login-btn:active { transform: translateY(0); }
+        .error-msg {
+            color: #ff6b6b; font-size: 13px; text-align: center;
+            margin-top: 16px; min-height: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-animation">
+        <span></span><span></span><span></span>
+        <span></span><span></span><span></span>
+    </div>
+
+    <div class="login-card">
+        <h1>🔒 nftables 转发面板</h1>
+        <p class="subtitle">请输入密码以登录管理面板</p>
+
+        <div class="input-group">
+            <span class="icon">🔑</span>
+            <input type="password" id="password" placeholder="请输入登录密码" autofocus>
+        </div>
+
+        <button class="login-btn" id="loginBtn">登 录</button>
+        <div class="error-msg" id="errorMsg"></div>
+    </div>
+
+    <script>
+        const passwordInput = document.getElementById('password');
+        const loginBtn = document.getElementById('loginBtn');
+        const errorMsg = document.getElementById('errorMsg');
+
+        async function doLogin() {
+            const pwd = passwordInput.value.trim();
+            if (!pwd) { errorMsg.textContent = '请输入密码'; return; }
+
+            loginBtn.disabled = true;
+            loginBtn.textContent = '登录中...';
+            errorMsg.textContent = '';
+
+            try {
+                const res = await fetch('/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pwd })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    window.location.href = '/';
+                } else {
+                    errorMsg.textContent = data.error || '登录失败';
+                }
+            } catch (e) {
+                errorMsg.textContent = '网络错误，请重试';
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.textContent = '登 录';
+            }
+        }
+
+        loginBtn.addEventListener('click', doLogin);
+        passwordInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter') doLogin();
+        });
+    </script>
+</body>
+</html>
