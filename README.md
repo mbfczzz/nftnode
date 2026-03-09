@@ -19,11 +19,8 @@
 
 ## 🔧 一键安装
 
-> **重要**: 安装前请先修改脚本顶部的 `GITHUB_REPO` 变量为你的仓库地址。
-
 ```bash
-# 下载并运行脚本（请替换为你的用户名）
-curl -L https://raw.githubusercontent.com/你的用户名/nftables-forward/main/nft-forward.sh -o nft-forward.sh && chmod +x nft-forward.sh && ./nft-forward.sh
+curl -L https://raw.githubusercontent.com/wsuming97/nftnode/main/nft-forward.sh -o nft-forward.sh && chmod +x nft-forward.sh && ./nft-forward.sh
 ```
 
 ## 📖 使用说明
