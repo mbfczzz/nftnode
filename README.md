@@ -98,7 +98,7 @@ nftables-forward/
 ├── README.md                   # 项目说明
 ├── LICENSE                     # MIT 许可证
 └── web/                        # Web 可视化面板
-    ├── config.toml             # 面板配置
+    ├── config.toml.example     # 面板配置模板（首次运行自动生成 config.toml）
     ├── go.mod                  # Go 依赖
     ├── main.go                 # Go 后端
     ├── templates/

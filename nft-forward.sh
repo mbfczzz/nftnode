@@ -110,14 +110,12 @@ init_env() {
         echo '[]' > "$RULES_FILE"
     fi
 
-    # 开启内核转发
-    if ! grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf 2>/dev/null; then
-        echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
-    fi
-    if ! grep -q "net.ipv6.conf.all.forwarding=1" /etc/sysctl.conf 2>/dev/null; then
-        echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
-    fi
-    sysctl -p >/dev/null 2>&1
+    # 开启内核转发（使用独立 sysctl 文件，不污染系统配置）
+    cat > /etc/sysctl.d/99-nft-forward.conf <<SYSEOF
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+SYSEOF
+    sysctl --system >/dev/null 2>&1
 
     # 启用 nftables
     systemctl enable nftables >/dev/null 2>&1
@@ -141,18 +139,9 @@ table inet nft_forward {
         type nat hook prerouting priority -100; policy accept;
 HEADER
 
-    # 逐条生成 DNAT 规则
-    local count
-    count=$(echo "$rules_json" | jq 'length')
-
-    for ((i=0; i<count; i++)); do
-        local lport raddr rport rid rnote proto_type
-        lport=$(echo "$rules_json" | jq -r ".[$i].local_port")
-        raddr=$(echo "$rules_json" | jq -r ".[$i].remote_addr")
-        rport=$(echo "$rules_json" | jq -r ".[$i].remote_port")
-        rid=$(echo "$rules_json" | jq -r ".[$i].id")
-        rnote=$(echo "$rules_json" | jq -r ".[$i].note // \"\"")
-
+    # 一次性提取所有规则字段，避免循环内多次 fork jq
+    echo "$rules_json" | jq -r '.[] | [.local_port, .remote_addr, .remote_port, .id, (.note // "")] | @tsv' |
+    while IFS=$'\t' read -r lport raddr rport rid rnote; do
         local note_comment=""
         [ -n "$rnote" ] && note_comment=" ($rnote)"
 
@@ -216,10 +205,20 @@ uninstall_nftables() {
 
     # 仅删除本项目创建的表
     nft delete table inet nft_forward 2>/dev/null
+
+    # 备份原有 nftables 配置后再覆盖
+    if [ -f "$NFT_CONF" ]; then
+        cp "$NFT_CONF" "${NFT_CONF}.bak.$(date +%Y%m%d%H%M%S)"
+        echo -e "${GREEN}已备份原配置: ${NFT_CONF}.bak.*${PLAIN}"
+    fi
     cat > "$NFT_CONF" <<'EOF'
 #!/usr/sbin/nft -f
 # nft_forward 表已卸载
 EOF
+
+    # 清理 sysctl 配置
+    rm -f /etc/sysctl.d/99-nft-forward.conf
+    sysctl --system >/dev/null 2>&1
 
     read -p "删除转发规则配置? [y/N]: " del_conf
     [[ "$del_conf" == "y" || "$del_conf" == "Y" ]] && rm -rf "$NFT_DIR"
@@ -386,13 +385,11 @@ delete_forward() {
     echo "================================================================"
     printf "  ${CYAN}%-4s %-10s %-22s %-8s %-12s${PLAIN}\n" "序号" "本机端口" "目标地址" "目标端口" "备注"
     echo "----------------------------------------------------------------"
-    for ((i=0; i<count; i++)); do
-        local lp ra rp rn
-        lp=$(echo "$rules_json" | jq -r ".[$i].local_port")
-        ra=$(echo "$rules_json" | jq -r ".[$i].remote_addr")
-        rp=$(echo "$rules_json" | jq -r ".[$i].remote_port")
-        rn=$(echo "$rules_json" | jq -r ".[$i].note // \"-\"")
-        printf "  ${GREEN}%-4s${PLAIN} %-10s %-22s %-8s %-12s\n" "$((i+1))" "$lp" "$ra" "$rp" "$rn"
+    local idx=0
+    echo "$rules_json" | jq -r '.[] | [.local_port, .remote_addr, .remote_port, (.note // "-")] | @tsv' |
+    while IFS=$'\t' read -r lp ra rp rn; do
+        ((idx++))
+        printf "  ${GREEN}%-4s${PLAIN} %-10s %-22s %-8s %-12s\n" "$idx" "$lp" "$ra" "$rp" "$rn"
     done
     echo "================================================================"
 
@@ -428,13 +425,11 @@ view_rules() {
     echo "================================================================"
     printf "  ${CYAN}%-4s %-10s %-22s %-8s %-12s${PLAIN}\n" "序号" "本机端口" "目标地址" "目标端口" "备注"
     echo "----------------------------------------------------------------"
-    for ((i=0; i<count; i++)); do
-        local lp ra rp rn
-        lp=$(echo "$rules_json" | jq -r ".[$i].local_port")
-        ra=$(echo "$rules_json" | jq -r ".[$i].remote_addr")
-        rp=$(echo "$rules_json" | jq -r ".[$i].remote_port")
-        rn=$(echo "$rules_json" | jq -r ".[$i].note // \"-\"")
-        printf "  ${GREEN}%-4s${PLAIN} %-10s %-22s %-8s %-12s\n" "$((i+1))" "$lp" "$ra" "$rp" "$rn"
+    local idx=0
+    echo "$rules_json" | jq -r '.[] | [.local_port, .remote_addr, .remote_port, (.note // "-")] | @tsv' |
+    while IFS=$'\t' read -r lp ra rp rn; do
+        ((idx++))
+        printf "  ${GREEN}%-4s${PLAIN} %-10s %-22s %-8s %-12s\n" "$idx" "$lp" "$ra" "$rp" "$rn"
     done
     echo "================================================================"
     echo ""

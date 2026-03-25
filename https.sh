@@ -7,7 +7,7 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-Passwd=$(cat /dev/urandom | head -1 | md5sum | head -c 12)
+Passwd=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)
 
 wget https://github.com/yeahwu/v2ray-wss/releases/download/v-monthly/caddy-v-monthly.tar.gz -O - | tar -xz -C /usr/local/
 

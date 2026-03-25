@@ -336,6 +336,41 @@
         }
         .ipv6-notice.show { display: block; }
 
+        /* --- Edit Modal --- */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            z-index: 500;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            width: 420px;
+            max-width: 90vw;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+        }
+        .modal-card h3 {
+            font-size: 16px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            justify-content: flex-end;
+        }
+
         /* --- Responsive --- */
         @media (max-width: 768px) {
             .header { padding: 0 16px; }
@@ -474,6 +509,30 @@
                     IPv6 格式：<code>中转端口:[IPv6地址]:目标端口</code>
                 </div>
                 <button class="btn btn-primary" id="batchAddBtn" style="margin-top:14px">批量添加</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑规则模态框 -->
+    <div class="modal-overlay" id="editModal">
+        <div class="modal-card">
+            <h3>✏️ 编辑转发规则</h3>
+            <input type="hidden" id="editRuleId">
+            <div class="form-group" style="margin-bottom:14px">
+                <label>目标地址</label>
+                <input type="text" id="editRemoteAddr" placeholder="IPv4/IPv6/域名">
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+                <label>目标端口</label>
+                <input type="number" id="editRemotePort" placeholder="1-65535" min="1" max="65535">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+                <label>备注（可选）</label>
+                <input type="text" id="editRuleNote" placeholder="备注信息">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-outline" id="editCancelBtn">取消</button>
+                <button class="btn btn-primary" id="editSaveBtn">保存</button>
             </div>
         </div>
     </div>

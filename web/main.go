@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gin-contrib/sessions"
@@ -75,6 +76,13 @@ var (
 	rules       []ForwardRule
 	panelConfig PanelConfig
 	configPath  = "./config.toml"
+
+	// 登录限流：防暴力破解
+	loginMu        sync.Mutex
+	loginAttempts  = make(map[string]int)
+	loginLockUntil = make(map[string]time.Time)
+	maxAttempts    = 5
+	lockDuration   = 15 * time.Minute
 )
 
 // --- 输入校验 ---
@@ -119,6 +127,23 @@ func sanitizeForNft(s string) string {
 // --- 配置加载 ---
 
 func LoadPanelConfig() error {
+	// 如果 config.toml 不存在，尝试从 config.toml.example 自动生成
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		examplePath := configPath + ".example"
+		if _, err := os.Stat(examplePath); err == nil {
+			data, err := os.ReadFile(examplePath)
+			if err != nil {
+				return fmt.Errorf("读取 %s 失败: %v", examplePath, err)
+			}
+			if err := os.WriteFile(configPath, data, 0600); err != nil {
+				return fmt.Errorf("生成 %s 失败: %v", configPath, err)
+			}
+			log.Printf("已从 %s 自动生成 %s，请及时修改默认密码！", examplePath, configPath)
+		} else {
+			return fmt.Errorf("配置文件 %s 不存在，也找不到 %s 模板", configPath, examplePath)
+		}
+	}
+
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return err
@@ -337,9 +362,49 @@ func verifyPassword(inputPassword string) bool {
 		return bcrypt.CompareHashAndPassword([]byte(panelConfig.Auth.PasswordHash), []byte(inputPassword)) == nil
 	}
 	if panelConfig.Auth.Password != "" {
+		log.Println("警告: 正在使用明文密码验证，请检查 bcrypt 哈希迁移是否成功")
 		return panelConfig.Auth.Password == inputPassword
 	}
 	return false
+}
+
+// --- 登录限流 ---
+
+// 检查 IP 是否被锁定
+func isLoginLocked(ip string) (bool, time.Duration) {
+	loginMu.Lock()
+	defer loginMu.Unlock()
+
+	if until, ok := loginLockUntil[ip]; ok {
+		if time.Now().Before(until) {
+			return true, time.Until(until)
+		}
+		// 锁定已过期，清理
+		delete(loginLockUntil, ip)
+		delete(loginAttempts, ip)
+	}
+	return false, 0
+}
+
+// 记录登录失败
+func recordLoginFailure(ip string) {
+	loginMu.Lock()
+	defer loginMu.Unlock()
+
+	loginAttempts[ip]++
+	if loginAttempts[ip] >= maxAttempts {
+		loginLockUntil[ip] = time.Now().Add(lockDuration)
+		log.Printf("IP %s 连续登录失败 %d 次，已锁定 %v", ip, maxAttempts, lockDuration)
+	}
+}
+
+// 登录成功后清除记录
+func clearLoginAttempts(ip string) {
+	loginMu.Lock()
+	defer loginMu.Unlock()
+
+	delete(loginAttempts, ip)
+	delete(loginLockUntil, ip)
 }
 
 // --- 中间件 ---
@@ -401,6 +466,16 @@ func main() {
 	})
 
 	r.POST("/login", func(c *gin.Context) {
+		clientIP := c.ClientIP()
+
+		// 检查是否被锁定
+		if locked, remaining := isLoginLocked(clientIP); locked {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error": fmt.Sprintf("登录失败次数过多，请 %d 分钟后重试", int(remaining.Minutes())+1),
+			})
+			return
+		}
+
 		var loginData struct {
 			Password string `json:"password"`
 		}
@@ -409,6 +484,7 @@ func main() {
 			return
 		}
 		if verifyPassword(loginData.Password) {
+			clearLoginAttempts(clientIP)
 			session := sessions.Default(c)
 			session.Set("user", true)
 			session.Options(sessions.Options{MaxAge: 3600 * 4, HttpOnly: true, Path: "/"})
@@ -418,6 +494,7 @@ func main() {
 			}
 			c.JSON(http.StatusOK, gin.H{"message": "登录成功"})
 		} else {
+			recordLoginFailure(clientIP)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "密码错误"})
 		}
 	})
@@ -618,6 +695,62 @@ func main() {
 			}
 
 			c.JSON(200, gin.H{"message": "规则已删除"})
+		})
+
+		// 编辑规则（修改目标地址、目标端口、备注，不允许修改本机端口）
+		api.PUT("/api/rules/:id", func(c *gin.Context) {
+			id := c.Param("id")
+			var input struct {
+				RemoteAddr string `json:"remote_addr"`
+				RemotePort string `json:"remote_port"`
+				Note       string `json:"note"`
+			}
+			if err := c.ShouldBindJSON(&input); err != nil {
+				c.JSON(400, gin.H{"error": "无效输入"})
+				return
+			}
+
+			// 校验字段（允许部分更新：只校验非空字段）
+			if input.RemotePort != "" && !validatePort(input.RemotePort) {
+				c.JSON(400, gin.H{"error": "目标端口无效 (1-65535)"})
+				return
+			}
+			if input.RemoteAddr != "" && !validateAddress(input.RemoteAddr) {
+				c.JSON(400, gin.H{"error": "目标地址无效，请输入合法的 IPv4/IPv6/域名"})
+				return
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			backup := snapshotRules()
+			found := false
+			for i, r := range rules {
+				if r.ID == id {
+					if input.RemoteAddr != "" {
+						rules[i].RemoteAddr = input.RemoteAddr
+					}
+					if input.RemotePort != "" {
+						rules[i].RemotePort = input.RemotePort
+					}
+					// 备注允许清空，所以始终更新
+					rules[i].Note = input.Note
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				c.JSON(404, gin.H{"error": "规则不存在"})
+				return
+			}
+
+			if err := saveAndApplyLocked(backup); err != nil {
+				c.JSON(500, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.JSON(200, gin.H{"message": "规则已更新"})
 		})
 
 		// 服务控制

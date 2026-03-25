@@ -447,6 +447,13 @@ generate_keys() {
         RE_PUBLIC_KEY=$(echo "$raw" | grep -iE "(public|publickey)" | awk -F ':' '{print $2}' | tr -d ' \r\n\t' || true)
     fi
     
+    # 兜底：如果关键字匹配失败，按行号取值（第1行=私钥，第2行=公钥）
+    if [[ -z "$RE_PRIVATE_KEY" || -z "$RE_PUBLIC_KEY" ]]; then
+        log_info "关键字匹配失败，尝试按行号解析..."
+        RE_PRIVATE_KEY=$(echo "$raw" | sed -n '1s/.*: *//p' | tr -d ' \r\n\t')
+        RE_PUBLIC_KEY=$(echo "$raw" | sed -n '2s/.*: *//p' | tr -d ' \r\n\t')
+    fi
+
     # 验证提取的密钥
     if [[ -z "$RE_PRIVATE_KEY" || -z "$RE_PUBLIC_KEY" ]]; then
         print_red "密钥解析失败。原始输出:"

@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const ipv6Notice = document.getElementById('ipv6Notice');
     const addrLabel = document.getElementById('addrLabel');
     const remoteAddrInput = document.getElementById('remoteAddr');
+    const editModal = document.getElementById('editModal');
 
     let currentPage = 1;
     let pageSize = 10;
@@ -120,7 +121,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${rule.remote_port}</td>
                 <td>TCP + UDP</td>
                 <td style="color:var(--text-secondary);font-size:13px;max-width:120px;overflow:hidden;text-overflow:ellipsis" title="${note}">${note}</td>
-                <td><button class="btn btn-danger btn-sm" onclick="deleteRule('${rule.id}')">删除</button></td>
+                <td>
+                    <button class="btn btn-outline btn-sm" data-action="edit" data-id="${rule.id}" data-addr="${addr}" data-port="${rule.remote_port}" data-note="${rule.note || ''}">编辑</button>
+                    <button class="btn btn-danger btn-sm" data-action="delete" data-id="${rule.id}">删除</button>
+                </td>
             </tr>`;
         }).join('');
 
@@ -134,22 +138,82 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('nextPage').disabled = currentPage >= totalPages;
     }
 
-    // --- 删除规则 ---
-    window.deleteRule = async function(id) {
-        if (!confirm('确定删除此转发规则？')) return;
-        try {
-            const res = await fetch(`/api/rules/${id}`, { method: 'DELETE' });
-            if (!res.ok) {
-                const d = await res.json();
-                throw new Error(d.error || '删除失败');
+    // --- 事件委托：规则表格操作按钮 ---
+    rulesBody.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+
+        const action = btn.dataset.action;
+        const id = btn.dataset.id;
+
+        if (action === 'delete') {
+            if (!confirm('确定删除此转发规则？')) return;
+            try {
+                const res = await fetch(`/api/rules/${id}`, { method: 'DELETE' });
+                if (!res.ok) {
+                    const d = await res.json();
+                    throw new Error(d.error || '删除失败');
+                }
+                showToast('规则已删除', 'success');
+                await fetchRules();
+                await updateStatus();
+            } catch (err) {
+                showToast(err.message, 'error');
             }
-            showToast('规则已删除', 'success');
+        }
+
+        if (action === 'edit') {
+            // 打开编辑模态框，填充当前值
+            document.getElementById('editRuleId').value = id;
+            document.getElementById('editRemoteAddr').value = btn.dataset.addr || '';
+            document.getElementById('editRemotePort').value = btn.dataset.port || '';
+            document.getElementById('editRuleNote').value = btn.dataset.note || '';
+            editModal.classList.add('show');
+        }
+    });
+
+    // --- 编辑模态框：关闭 ---
+    document.getElementById('editCancelBtn').addEventListener('click', () => {
+        editModal.classList.remove('show');
+    });
+    editModal.addEventListener('click', (e) => {
+        // 点击遮罩层关闭
+        if (e.target === editModal) editModal.classList.remove('show');
+    });
+
+    // --- 编辑模态框：保存 ---
+    document.getElementById('editSaveBtn').addEventListener('click', async () => {
+        const id = document.getElementById('editRuleId').value;
+        const remoteAddr = document.getElementById('editRemoteAddr').value.trim();
+        const remotePort = document.getElementById('editRemotePort').value.trim();
+        const note = document.getElementById('editRuleNote').value.trim();
+
+        if (!remoteAddr || !remotePort) {
+            showToast('目标地址和端口不能为空', 'error');
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/rules/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    remote_addr: remoteAddr,
+                    remote_port: remotePort,
+                    note: note
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || '更新失败');
+
+            showToast('规则已更新', 'success');
+            editModal.classList.remove('show');
             await fetchRules();
             await updateStatus();
-        } catch (e) {
-            showToast(e.message, 'error');
+        } catch (err) {
+            showToast(err.message, 'error');
         }
-    };
+    });
 
     // --- 添加单条规则 ---
     document.getElementById('addRuleBtn').addEventListener('click', async () => {

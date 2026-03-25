@@ -13,7 +13,7 @@ web/web
 
 # Runtime/config files (generated on first run, contain secrets)
 web/config.toml
-web/*.toml
+!web/config.toml.example
 
 # nftables rules data (server-side runtime data)
 /root/.nft-forward/

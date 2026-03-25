@@ -1,0 +1,20 @@
+# nftables 转发面板配置
+
+[auth]
+password = "admin123"
+# password_hash = ""  # 首次运行时会自动将明文密码哈希化并填入此字段
+
+[server]
+port = 8080
+
+[https]
+enabled = false
+cert_file = "./certificate/cert.pem"
+key_file = "./certificate/private.key"
+
+[nftables]
+config_path = "/etc/nftables.conf"
+rules_path = "/root/.nft-forward/rules.json"
+
+[session]
+# secret = ""  # 首次运行时会自动生成随机密钥
