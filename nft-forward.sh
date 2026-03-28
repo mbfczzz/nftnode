@@ -150,12 +150,12 @@ HEADER
             local clean_addr
             clean_addr=$(echo "$raddr" | tr -d '[]')
             echo "        # Rule: ${rid}${note_comment}" >> "$NFT_CONF"
-            echo "        tcp dport ${lport} dnat to [${clean_addr}]:${rport}" >> "$NFT_CONF"
-            echo "        udp dport ${lport} dnat to [${clean_addr}]:${rport}" >> "$NFT_CONF"
+            echo "        tcp dport ${lport} dnat ip6 to [${clean_addr}]:${rport}" >> "$NFT_CONF"
+            echo "        udp dport ${lport} dnat ip6 to [${clean_addr}]:${rport}" >> "$NFT_CONF"
         else
             echo "        # Rule: ${rid}${note_comment}" >> "$NFT_CONF"
-            echo "        tcp dport ${lport} dnat to ${raddr}:${rport}" >> "$NFT_CONF"
-            echo "        udp dport ${lport} dnat to ${raddr}:${rport}" >> "$NFT_CONF"
+            echo "        tcp dport ${lport} dnat ip to ${raddr}:${rport}" >> "$NFT_CONF"
+            echo "        udp dport ${lport} dnat ip to ${raddr}:${rport}" >> "$NFT_CONF"
         fi
     done
 

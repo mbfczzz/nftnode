@@ -123,8 +123,8 @@ table inet nft_forward {
     chain prerouting {
         type nat hook prerouting priority -100; policy accept;
         # Rule abc12345 (东京节点)
-        tcp dport 2222 dnat to 6.6.6.6:6666
-        udp dport 2222 dnat to 6.6.6.6:6666
+        tcp dport 2222 dnat ip to 6.6.6.6:6666
+        udp dport 2222 dnat ip to 6.6.6.6:6666
     }
 
     chain postrouting {

@@ -296,12 +296,12 @@ func generateNftConfLocked() error {
 
 		if isIPv6(rule.RemoteAddr) {
 			buf.WriteString(fmt.Sprintf("        # Rule %s%s\n", rule.ID, noteComment))
-			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat to [%s]:%s\n", lport, addr, rport))
-			buf.WriteString(fmt.Sprintf("        udp dport %s dnat to [%s]:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat ip6 to [%s]:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        udp dport %s dnat ip6 to [%s]:%s\n", lport, addr, rport))
 		} else {
 			buf.WriteString(fmt.Sprintf("        # Rule %s%s\n", rule.ID, noteComment))
-			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat to %s:%s\n", lport, addr, rport))
-			buf.WriteString(fmt.Sprintf("        udp dport %s dnat to %s:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat ip to %s:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        udp dport %s dnat ip to %s:%s\n", lport, addr, rport))
 		}
 		buf.WriteString("\n")
 	}
