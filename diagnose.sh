@@ -185,8 +185,9 @@ echo ""
 echo -e "${CYAN}[7/7] 防火墙与其他拦截检测${PLAIN}"
 
 # 检查是否有 iptables 规则可能冲突
-ipt_rules=$(iptables -L -n 2>/dev/null | grep -c "DROP\|REJECT" || echo "0")
-if [ "$ipt_rules" -gt 0 ]; then
+ipt_rules=$(iptables -L -n 2>/dev/null | grep -c "DROP\|REJECT" 2>/dev/null) || ipt_rules=0
+ipt_rules=$(echo "$ipt_rules" | tr -d '[:space:]')
+if [ "$ipt_rules" -gt 0 ] 2>/dev/null; then
     warn "iptables 中有 ${ipt_rules} 条 DROP/REJECT 规则，可能与 nftables 冲突"
     echo -e "    ${YELLOW}查看: iptables -L -n --line-numbers${PLAIN}"
 else
@@ -194,8 +195,9 @@ else
 fi
 
 # 检查是否有其他 nftables 表的拦截规则
-other_drop=$(nft list ruleset 2>/dev/null | grep -v "nft_forward" | grep -c "drop\|reject" || echo "0")
-if [ "$other_drop" -gt 0 ]; then
+other_drop=$(nft list ruleset 2>/dev/null | grep -v "nft_forward" | grep -c "drop\|reject" 2>/dev/null) || other_drop=0
+other_drop=$(echo "$other_drop" | tr -d '[:space:]')
+if [ "$other_drop" -gt 0 ] 2>/dev/null; then
     warn "其他 nftables 表中有 ${other_drop} 条 drop/reject 规则，可能拦截转发流量"
     echo -e "    ${YELLOW}查看: nft list ruleset${PLAIN}"
 else
