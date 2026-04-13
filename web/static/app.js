@@ -429,9 +429,102 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchRules();
     });
 
+    // --- 节点查看 ---
+    const nodesContainer = document.getElementById('nodesContainer');
+
+    async function fetchNodes() {
+        try {
+            const res = await fetch('/api/nodes');
+            if (!res.ok) throw new Error('获取失败');
+            const data = await res.json();
+            renderNodes(data.nodes || []);
+        } catch (e) {
+            nodesContainer.innerHTML = '<div class="nodes-empty">获取节点信息失败</div>';
+        }
+    }
+
+    function renderNodes(nodes) {
+        if (nodes.length === 0) {
+            nodesContainer.innerHTML = '<div class="nodes-empty">暂无已部署节点（可通过脚本菜单安装 Xray Reality 或 Shadowsocks）</div>';
+            return;
+        }
+
+        nodesContainer.innerHTML = nodes.map(node => {
+            const statusClass = node.status === '运行中' ? 'running' : 'stopped';
+            let infoRows = '';
+            let icon = '';
+
+            if (node.type === 'Xray Reality') {
+                icon = '<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>';
+                infoRows = `
+                    <span class="label">协议</span><span class="value">VLESS + Reality</span>
+                    <span class="label">地址</span><span class="value">${node.address || '-'}</span>
+                    <span class="label">端口</span><span class="value">${node.port || '-'}</span>
+                    <span class="label">UUID</span><span class="value">${node.uuid || '-'}</span>
+                    <span class="label">流控</span><span class="value">${node.flow || '-'}</span>
+                    <span class="label">传输</span><span class="value">${node.network || '-'}</span>
+                    <span class="label">安全</span><span class="value">${node.security || '-'}</span>
+                    <span class="label">SNI</span><span class="value">${node.sni || '-'}</span>
+                    <span class="label">公钥</span><span class="value">${node.public_key || '-'}</span>
+                    <span class="label">Short ID</span><span class="value">${node.short_id || '-'}</span>
+                `;
+            } else if (node.type === 'Shadowsocks') {
+                icon = '<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>';
+                infoRows = `
+                    <span class="label">协议</span><span class="value">Shadowsocks</span>
+                    <span class="label">地址</span><span class="value">${node.address || '-'}</span>
+                    <span class="label">端口</span><span class="value">${node.port || '-'}</span>
+                    <span class="label">密码</span><span class="value">${node.password || '-'}</span>
+                    <span class="label">加密方式</span><span class="value">${node.method || '-'}</span>
+                `;
+            }
+
+            const linkHtml = node.link
+                ? `<div class="node-link" data-link="${encodeURIComponent(node.link)}" title="点击复制链接">
+                       ${node.link}
+                       <span class="copy-hint">点击复制</span>
+                   </div>`
+                : '';
+
+            return `<div class="node-card">
+                <div class="node-header">
+                    <div class="node-type">${icon} ${node.type}</div>
+                    <span class="node-status ${statusClass}">${node.status}</span>
+                </div>
+                <div class="node-info">${infoRows}</div>
+                ${linkHtml}
+            </div>`;
+        }).join('');
+
+        // 点击复制链接
+        nodesContainer.querySelectorAll('.node-link').forEach(el => {
+            el.addEventListener('click', () => {
+                const link = decodeURIComponent(el.dataset.link);
+                navigator.clipboard.writeText(link).then(() => {
+                    showToast('连接链接已复制', 'success');
+                }).catch(() => {
+                    // fallback
+                    const ta = document.createElement('textarea');
+                    ta.value = link;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    showToast('连接链接已复制', 'success');
+                });
+            });
+        });
+    }
+
+    document.getElementById('refreshNodesBtn').addEventListener('click', () => {
+        nodesContainer.innerHTML = '<div class="nodes-empty">刷新中...</div>';
+        fetchNodes();
+    });
+
     // --- 初始化 ---
     fetchRules();
     updateStatus();
+    fetchNodes();
 
     // 定时刷新状态
     setInterval(updateStatus, 15000);

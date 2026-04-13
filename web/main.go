@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -856,6 +857,129 @@ func main() {
 
 			log.Printf("密码已修改 (来自 IP: %s)", c.ClientIP())
 			c.JSON(200, gin.H{"message": "密码修改成功"})
+		})
+
+		// 查看已部署节点
+		api.GET("/api/nodes", func(c *gin.Context) {
+			nodes := []gin.H{}
+
+			// 检测 Xray Reality
+			xrayConfigPath := "/usr/local/etc/xray/config.json"
+			xrayClientPath := "/usr/local/etc/xray/reclient.json"
+			if _, err := os.Stat(xrayConfigPath); err == nil {
+				node := gin.H{
+					"type":   "Xray Reality",
+					"status": "未运行",
+				}
+
+				// 检查服务状态
+				cmd := exec.Command("systemctl", "is-active", "--quiet", "xray")
+				if cmd.Run() == nil {
+					node["status"] = "运行中"
+				}
+
+				// 读取服务端配置，提取端口和 UUID
+				if data, err := os.ReadFile(xrayConfigPath); err == nil {
+					var cfg map[string]interface{}
+					if json.Unmarshal(data, &cfg) == nil {
+						if inbounds, ok := cfg["inbounds"].([]interface{}); ok && len(inbounds) > 0 {
+							if ib, ok := inbounds[0].(map[string]interface{}); ok {
+								if port, ok := ib["port"].(float64); ok {
+									node["port"] = int(port)
+								}
+								// 提取 UUID
+								if settings, ok := ib["settings"].(map[string]interface{}); ok {
+									if clients, ok := settings["clients"].([]interface{}); ok && len(clients) > 0 {
+										if client, ok := clients[0].(map[string]interface{}); ok {
+											node["uuid"] = client["id"]
+											node["flow"] = client["flow"]
+										}
+									}
+								}
+								// 提取 Reality 参数
+								if ss, ok := ib["streamSettings"].(map[string]interface{}); ok {
+									node["network"] = ss["network"]
+									node["security"] = ss["security"]
+									if rs, ok := ss["realitySettings"].(map[string]interface{}); ok {
+										node["dest"] = rs["dest"]
+										if sn, ok := rs["serverNames"].([]interface{}); ok && len(sn) > 0 {
+											node["sni"] = sn[0]
+										}
+										if sids, ok := rs["shortIds"].([]interface{}); ok && len(sids) > 0 {
+											node["short_id"] = sids[0]
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// 读取客户端配置，提取连接链接和公钥
+				if data, err := os.ReadFile(xrayClientPath); err == nil {
+					var clientCfg map[string]interface{}
+					if json.Unmarshal(data, &clientCfg) == nil {
+						if link, ok := clientCfg["连接链接"].(string); ok {
+							node["link"] = link
+						}
+						if params, ok := clientCfg["配置参数"].(map[string]interface{}); ok {
+							node["public_key"] = params["公钥"]
+							node["address"] = params["地址"]
+						}
+					}
+				}
+
+				nodes = append(nodes, node)
+			}
+
+			// 检测 Shadowsocks Rust
+			ssConfigPath := "/etc/shadowsocks/config.json"
+			if _, err := os.Stat(ssConfigPath); err == nil {
+				node := gin.H{
+					"type":   "Shadowsocks",
+					"status": "未运行",
+				}
+
+				// 检查服务状态
+				cmd := exec.Command("systemctl", "is-active", "--quiet", "shadowsocks")
+				if cmd.Run() == nil {
+					node["status"] = "运行中"
+				}
+
+				// 读取配置
+				if data, err := os.ReadFile(ssConfigPath); err == nil {
+					var cfg map[string]interface{}
+					if json.Unmarshal(data, &cfg) == nil {
+						if port, ok := cfg["server_port"].(float64); ok {
+							node["port"] = int(port)
+						}
+						node["password"] = cfg["password"]
+						node["method"] = cfg["method"]
+					}
+				}
+
+				// 获取服务器 IP 用于生成 SS 链接
+				if ipOut, err := exec.Command("curl", "-s", "--max-time", "3", "ip.sb").Output(); err == nil {
+					serverIP := strings.TrimSpace(string(ipOut))
+					if serverIP != "" {
+						node["address"] = serverIP
+						// 生成 SS 链接（格式: ss://base64(method:password)@host:port#name）
+						if pwd, ok := node["password"].(string); ok {
+							if method, ok := node["method"].(string); ok {
+								if port, ok := node["port"].(int); ok {
+									userInfo := fmt.Sprintf("%s:%s", method, pwd)
+									encoded := base64.StdEncoding.EncodeToString([]byte(userInfo))
+									node["link"] = fmt.Sprintf("ss://%s@%s:%d#SS-%d", encoded, serverIP, port, port)
+								}
+							}
+						}
+					}
+				}
+
+				nodes = append(nodes, node)
+			}
+
+			c.JSON(200, gin.H{"nodes": nodes})
 		})
 	}
 
