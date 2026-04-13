@@ -987,7 +987,7 @@ func main() {
 	// --- 启动服务器 ---
 	port := panelConfig.Server.Port
 	if port == 0 {
-		port = 8080
+		port = 3456
 	}
 
 	if panelConfig.HTTPS.Enabled && panelConfig.HTTPS.CertFile != "" && panelConfig.HTTPS.KeyFile != "" {

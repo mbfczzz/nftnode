@@ -61,7 +61,7 @@ curl -L https://raw.githubusercontent.com/wsuming97/nftnode/main/nft-forward.sh 
 
 ### Web 面板
 
-面板默认运行在 `http://服务器IP:8080`
+面板默认运行在 `http://服务器IP:3456`
 
 配置文件路径：`/root/nft-forward/web/config.toml`
 
@@ -72,7 +72,7 @@ password = "admin123"
 password_hash = ""
 
 [server]
-port = 8080
+port = 3456
 
 [https]
 enabled = false
