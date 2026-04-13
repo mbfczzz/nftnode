@@ -226,10 +226,22 @@ EOF
 }
 
 # --- 代理服务安装管理 ---
+
+# 已知的代理服务列表（安装子脚本时保护这些服务不被意外停止）
+PROXY_SERVICES=("xray" "shadowsocks")
+
 run_proxy_script() {
     local script_name=$1
     local script_url="https://raw.githubusercontent.com/${GITHUB_REPO}/main/${script_name}"
-    
+
+    # 记录当前正在运行的代理服务，用于子脚本结束后恢复
+    local running_before=()
+    for svc in "${PROXY_SERVICES[@]}"; do
+        if systemctl is-active --quiet "$svc" 2>/dev/null; then
+            running_before+=("$svc")
+        fi
+    done
+
     echo -e "${CYAN}正在下载并运行 ${script_name}...${PLAIN}"
     if curl -sL "$script_url" -o "/tmp/${script_name}"; then
         chmod +x "/tmp/${script_name}"
@@ -237,7 +249,21 @@ run_proxy_script() {
         rm -f "/tmp/${script_name}"
     else
         echo -e "${RED}下载 ${script_name} 失败，请检查网络或 GITHUB_REPO 配置。${PLAIN}"
+        return
     fi
+
+    # 恢复被意外停止的代理服务
+    for svc in "${running_before[@]}"; do
+        if ! systemctl is-active --quiet "$svc" 2>/dev/null; then
+            echo -e "${YELLOW}检测到 ${svc} 服务被意外停止，正在恢复...${PLAIN}"
+            systemctl start "$svc" 2>/dev/null
+            if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                echo -e "${GREEN}${svc} 服务已恢复${PLAIN}"
+            else
+                echo -e "${RED}${svc} 服务恢复失败，请手动检查: systemctl status ${svc}${PLAIN}"
+            fi
+        fi
+    done
 }
 
 # --- 转发管理 ---
