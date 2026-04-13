@@ -463,6 +463,86 @@ view_rules() {
     nft list ruleset 2>/dev/null || echo -e "${RED}无法获取 nftables 规则${PLAIN}"
 }
 
+# --- 查看已部署节点 ---
+view_nodes() {
+    echo ""
+    echo -e "${CYAN}================================================${PLAIN}"
+    echo -e "${CYAN}          已部署节点信息${PLAIN}"
+    echo -e "${CYAN}================================================${PLAIN}"
+    echo ""
+
+    local found=0
+
+    # 检测 Xray Reality
+    if [ -f "/usr/local/etc/xray/config.json" ]; then
+        found=1
+        local xray_status="${RED}未运行${PLAIN}"
+        systemctl is-active --quiet xray 2>/dev/null && xray_status="${GREEN}运行中${PLAIN}"
+
+        echo -e "  ${GREEN}[Xray Reality]${PLAIN}  状态: $xray_status"
+        echo -e "  ────────────────────────────────────────"
+
+        # 从服务端配置读取端口
+        local port=$(jq -r '.inbounds[0].port // "N/A"' /usr/local/etc/xray/config.json 2>/dev/null)
+        local uuid=$(jq -r '.inbounds[0].settings.clients[0].id // "N/A"' /usr/local/etc/xray/config.json 2>/dev/null)
+        local sni=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0] // "N/A"' /usr/local/etc/xray/config.json 2>/dev/null)
+
+        echo -e "  端口: ${YELLOW}${port}${PLAIN}"
+        echo -e "  UUID: ${YELLOW}${uuid}${PLAIN}"
+        echo -e "  SNI:  ${YELLOW}${sni}${PLAIN}"
+
+        # 从客户端配置读取连接链接
+        if [ -f "/usr/local/etc/xray/reclient.json" ]; then
+            local link=$(jq -r '."连接链接" // empty' /usr/local/etc/xray/reclient.json 2>/dev/null)
+            local pubkey=$(jq -r '."配置参数"."公钥" // empty' /usr/local/etc/xray/reclient.json 2>/dev/null)
+            [ -n "$pubkey" ] && echo -e "  公钥: ${YELLOW}${pubkey}${PLAIN}"
+            if [ -n "$link" ]; then
+                echo ""
+                echo -e "  ${GREEN}连接链接:${PLAIN}"
+                echo -e "  ${YELLOW}${link}${PLAIN}"
+            fi
+        else
+            echo -e "  ${RED}未找到客户端配置文件 (reclient.json)${PLAIN}"
+        fi
+        echo ""
+    fi
+
+    # 检测 Shadowsocks
+    if [ -f "/etc/shadowsocks/config.json" ]; then
+        found=1
+        local ss_status="${RED}未运行${PLAIN}"
+        systemctl is-active --quiet shadowsocks 2>/dev/null && ss_status="${GREEN}运行中${PLAIN}"
+
+        echo -e "  ${GREEN}[Shadowsocks]${PLAIN}  状态: $ss_status"
+        echo -e "  ────────────────────────────────────────"
+
+        local ss_port=$(jq -r '.server_port // "N/A"' /etc/shadowsocks/config.json 2>/dev/null)
+        local ss_pwd=$(jq -r '.password // "N/A"' /etc/shadowsocks/config.json 2>/dev/null)
+        local ss_method=$(jq -r '.method // "N/A"' /etc/shadowsocks/config.json 2>/dev/null)
+
+        echo -e "  端口:   ${YELLOW}${ss_port}${PLAIN}"
+        echo -e "  密码:   ${YELLOW}${ss_pwd}${PLAIN}"
+        echo -e "  加密:   ${YELLOW}${ss_method}${PLAIN}"
+
+        # 获取服务器 IP 并生成 SS 链接
+        local server_ip
+        server_ip=$(curl -s --max-time 3 ip.sb 2>/dev/null)
+        if [ -n "$server_ip" ]; then
+            local ss_link="ss://$(echo -n "${ss_method}:${ss_pwd}@${server_ip}:${ss_port}" | base64 -w 0)"
+            echo ""
+            echo -e "  ${GREEN}连接链接:${PLAIN}"
+            echo -e "  ${YELLOW}${ss_link}${PLAIN}"
+        fi
+        echo ""
+    fi
+
+    if [ $found -eq 0 ]; then
+        echo -e "  ${YELLOW}暂无已部署节点（可通过菜单 4/5 安装 Xray Reality 或 Shadowsocks）${PLAIN}"
+    fi
+
+    echo -e "${CYAN}================================================${PLAIN}"
+}
+
 # --- 服务控制 ---
 start_service() { systemctl start nftables && echo -e "${GREEN}nftables 已启动${PLAIN}" || echo -e "${RED}启动失败${PLAIN}"; }
 stop_service() { systemctl stop nftables && echo -e "${GREEN}nftables 已停止${PLAIN}" || echo -e "${RED}停止失败${PLAIN}"; }
@@ -586,13 +666,14 @@ show_menu() {
     echo "  4. 安装 Xray Reality"
     echo "  5. 安装 Shadowsocks Rust"
     echo "  6. 查看当前转发配置"
+    echo "  7. 查看已部署节点"
     echo "------------------------------------------------"
-    echo "  7. 启动 nftables"
-    echo "  8. 停止 nftables"
-    echo "  9. 重启 nftables"
+    echo "  8. 启动 nftables"
+    echo "  9. 停止 nftables"
+    echo "  10. 重启 nftables"
     echo "------------------------------------------------"
-    echo "  10. 更新脚本"
-    echo "  11. 面板管理"
+    echo "  11. 更新脚本"
+    echo "  12. 面板管理"
     echo "  0. 退出脚本"
     echo "################################################"
 }
@@ -609,7 +690,7 @@ main() {
 
     while true; do
         show_menu
-        read -p "选择 [0-11]: " opt
+        read -p "选择 [0-12]: " opt
         case $opt in
             1) install_nftables ;;
             2) uninstall_nftables ;;
@@ -617,11 +698,12 @@ main() {
             4) run_proxy_script "reality.sh" ;;
             5) run_proxy_script "ss-rust.sh" ;;
             6) view_rules ;;
-            7) start_service ;;
-            8) stop_service ;;
-            9) restart_service ;;
-            10) Update_Shell ;;
-            11) panel_management ;;
+            7) view_nodes ;;
+            8) start_service ;;
+            9) stop_service ;;
+            10) restart_service ;;
+            11) Update_Shell ;;
+            12) panel_management ;;
             0) exit 0 ;;
             *) echo "无效选择" ;;
         esac
