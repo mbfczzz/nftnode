@@ -812,7 +812,53 @@ func main() {
 			session.Save()
 			c.JSON(http.StatusOK, gin.H{"message": "登出成功"})
 		})
+
+		// 修改密码
+		api.PUT("/api/password", func(c *gin.Context) {
+			var input struct {
+				OldPassword string `json:"old_password"`
+				NewPassword string `json:"new_password"`
+			}
+			if err := c.ShouldBindJSON(&input); err != nil {
+				c.JSON(400, gin.H{"error": "无效请求"})
+				return
+			}
+
+			if input.OldPassword == "" || input.NewPassword == "" {
+				c.JSON(400, gin.H{"error": "旧密码和新密码不能为空"})
+				return
+			}
+			if len(input.NewPassword) < 4 {
+				c.JSON(400, gin.H{"error": "新密码至少 4 个字符"})
+				return
+			}
+
+			// 验证旧密码
+			if !verifyPassword(input.OldPassword) {
+				c.JSON(401, gin.H{"error": "当前密码错误"})
+				return
+			}
+
+			// 生成新密码的 bcrypt 哈希
+			hash, err := bcrypt.GenerateFromPassword([]byte(input.NewPassword), bcrypt.DefaultCost)
+			if err != nil {
+				c.JSON(500, gin.H{"error": "密码加密失败"})
+				return
+			}
+
+			// 更新配置并持久化
+			panelConfig.Auth.PasswordHash = string(hash)
+			panelConfig.Auth.Password = ""
+			if err := savePanelConfig(); err != nil {
+				c.JSON(500, gin.H{"error": "保存配置失败: " + err.Error()})
+				return
+			}
+
+			log.Printf("密码已修改 (来自 IP: %s)", c.ClientIP())
+			c.JSON(200, gin.H{"message": "密码修改成功"})
+		})
 	}
+
 
 	// --- 启动服务器 ---
 	port := panelConfig.Server.Port

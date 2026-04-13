@@ -4,30 +4,53 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>nftables 转发管理面板</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         :root {
-            --bg-primary: #0f1117;
-            --bg-secondary: #1a1d28;
-            --bg-card: #22263a;
-            --bg-input: #2a2e42;
-            --border: rgba(255,255,255,0.06);
-            --text-primary: #e4e6ef;
-            --text-secondary: #8b8fa3;
-            --accent: #7c5cf7;
-            --accent-hover: #6c63ff;
-            --success: #22c55e;
+            --bg-primary: #f0f2f5;
+            --bg-secondary: #ffffff;
+            --bg-card: #ffffff;
+            --bg-input: #f5f7fa;
+            --border: rgba(0,0,0,0.06);
+            --border-hover: rgba(0,0,0,0.12);
+            --text-primary: #111827;
+            --text-secondary: #6b7280;
+            --text-muted: #9ca3af;
+            --accent: #4f46e5;
+            --accent-light: #eef2ff;
+            --accent-hover: #4338ca;
+            --success: #10b981;
+            --success-light: #ecfdf5;
             --danger: #ef4444;
+            --danger-light: #fef2f2;
             --warning: #f59e0b;
+            --warning-light: #fffbeb;
             --radius: 12px;
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+            --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+            --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
+            --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
         }
 
         body {
-            font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            font-family: 'Inter', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             min-height: 100vh;
+        }
+
+        /* --- SVG Icon Base --- */
+        .icon-svg {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+        .icon-svg-sm {
+            width: 15px;
+            height: 15px;
         }
 
         /* --- Header --- */
@@ -35,54 +58,59 @@
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border);
             padding: 0 32px;
-            height: 64px;
+            height: 60px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             position: sticky;
             top: 0;
             z-index: 100;
-            backdrop-filter: blur(12px);
+            box-shadow: var(--shadow-sm);
         }
         .header h1 {
-            font-size: 18px;
-            font-weight: 600;
+            font-size: 17px;
+            font-weight: 700;
             display: flex;
             align-items: center;
             gap: 10px;
+            color: var(--text-primary);
+        }
+        .header h1 .icon-svg {
+            color: var(--accent);
         }
         .header-right {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 12px;
         }
         .status-badge {
             display: flex;
             align-items: center;
             gap: 8px;
-            padding: 6px 14px;
+            padding: 5px 14px;
             border-radius: 20px;
             font-size: 13px;
             font-weight: 500;
         }
         .status-badge.running {
-            background: rgba(34,197,94,0.1);
+            background: var(--success-light);
             color: var(--success);
-            border: 1px solid rgba(34,197,94,0.2);
+            border: 1px solid rgba(16,185,129,0.2);
         }
         .status-badge.stopped {
-            background: rgba(239,68,68,0.1);
+            background: var(--danger-light);
             color: var(--danger);
-            border: 1px solid rgba(239,68,68,0.2);
+            border: 1px solid rgba(239,68,68,0.15);
         }
         .status-dot {
-            width: 8px; height: 8px; border-radius: 50%;
+            width: 7px; height: 7px; border-radius: 50%;
         }
-        .status-badge.running .status-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+        .status-badge.running .status-dot { background: var(--success); box-shadow: 0 0 6px var(--success); }
         .status-badge.stopped .status-dot { background: var(--danger); }
 
+        /* --- Buttons --- */
         .btn {
-            padding: 8px 18px;
+            padding: 8px 16px;
             border: none;
             border-radius: 8px;
             font-size: 13px;
@@ -92,24 +120,36 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
+            font-family: inherit;
         }
         .btn:hover { transform: translateY(-1px); }
         .btn:active { transform: translateY(0); }
         .btn-primary { background: var(--accent); color: #fff; }
-        .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 4px 15px rgba(124,92,247,0.3); }
+        .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 4px 12px rgba(79,70,229,0.25); }
         .btn-success { background: var(--success); color: #fff; }
-        .btn-success:hover { box-shadow: 0 4px 15px rgba(34,197,94,0.3); }
+        .btn-success:hover { box-shadow: 0 4px 12px rgba(16,185,129,0.25); }
         .btn-danger { background: var(--danger); color: #fff; }
-        .btn-danger:hover { box-shadow: 0 4px 15px rgba(239,68,68,0.3); }
-        .btn-warning { background: var(--warning); color: #000; }
+        .btn-danger:hover { box-shadow: 0 4px 12px rgba(239,68,68,0.25); }
+        .btn-warning { background: var(--warning); color: #fff; }
+        .btn-warning:hover { box-shadow: 0 4px 12px rgba(245,158,11,0.25); }
         .btn-outline {
-            background: transparent;
-            border: 1px solid rgba(255,255,255,0.15);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
             color: var(--text-secondary);
         }
         .btn-outline:hover {
             border-color: var(--accent);
             color: var(--accent);
+            background: var(--accent-light);
+        }
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-secondary);
+            padding: 6px 10px;
+        }
+        .btn-ghost:hover {
+            background: var(--bg-input);
+            color: var(--text-primary);
         }
         .btn-sm { padding: 5px 12px; font-size: 12px; }
 
@@ -117,14 +157,14 @@
         .main {
             max-width: 1100px;
             margin: 0 auto;
-            padding: 28px 24px;
+            padding: 24px 24px;
         }
 
         /* --- Service Controls --- */
         .service-controls {
             display: flex;
-            gap: 10px;
-            margin-bottom: 24px;
+            gap: 8px;
+            margin-bottom: 20px;
             flex-wrap: wrap;
         }
 
@@ -134,6 +174,7 @@
             border: 1px solid var(--border);
             border-radius: var(--radius);
             margin-bottom: 20px;
+            box-shadow: var(--shadow);
             overflow: hidden;
         }
         .card-header {
@@ -149,7 +190,9 @@
             display: flex;
             align-items: center;
             gap: 8px;
+            color: var(--text-primary);
         }
+        .card-header h2 .icon-svg { color: var(--accent); }
         .card-body { padding: 20px; }
 
         /* --- Table --- */
@@ -160,13 +203,14 @@
         }
         thead th {
             text-align: left;
-            padding: 12px 16px;
+            padding: 10px 16px;
             font-size: 12px;
             font-weight: 600;
             color: var(--text-secondary);
             text-transform: uppercase;
             letter-spacing: 0.5px;
             border-bottom: 1px solid var(--border);
+            background: var(--bg-input);
             white-space: nowrap;
         }
         tbody td {
@@ -174,12 +218,14 @@
             font-size: 14px;
             border-bottom: 1px solid var(--border);
             white-space: nowrap;
+            color: var(--text-primary);
         }
-        tbody tr:hover { background: rgba(124,92,247,0.04); }
+        tbody tr { transition: background 0.15s; }
+        tbody tr:hover { background: var(--accent-light); }
         tbody tr:last-child td { border-bottom: none; }
         .empty-row td {
             text-align: center;
-            color: var(--text-secondary);
+            color: var(--text-muted);
             padding: 40px 16px;
         }
 
@@ -200,11 +246,12 @@
         }
         .pagination select {
             background: var(--bg-input);
-            border: 1px solid rgba(255,255,255,0.1);
+            border: 1px solid var(--border);
             border-radius: 6px;
             color: var(--text-primary);
             padding: 4px 8px;
             font-size: 13px;
+            font-family: inherit;
         }
 
         /* --- Form --- */
@@ -225,18 +272,20 @@
             width: 100%;
             padding: 10px 14px;
             background: var(--bg-input);
-            border: 1px solid rgba(255,255,255,0.08);
+            border: 1px solid var(--border);
             border-radius: 8px;
             color: var(--text-primary);
             font-size: 14px;
+            font-family: inherit;
             outline: none;
-            transition: border-color 0.2s;
+            transition: all 0.2s;
         }
         .form-group input:focus, .form-group textarea:focus {
             border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
         }
         .form-group input::placeholder, .form-group textarea::placeholder {
-            color: rgba(255,255,255,0.2);
+            color: var(--text-muted);
         }
         .form-group textarea {
             resize: vertical;
@@ -250,6 +299,12 @@
             margin-top: 8px;
             line-height: 1.5;
         }
+        .form-hint code {
+            background: var(--bg-input);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
 
         /* --- Toast --- */
         .toast {
@@ -262,7 +317,7 @@
             z-index: 1000;
             animation: slideIn 0.3s ease;
             max-width: 400px;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+            box-shadow: var(--shadow-lg);
         }
         .toast.success { background: var(--success); color: #fff; }
         .toast.error { background: var(--danger); color: #fff; }
@@ -272,17 +327,16 @@
             to { transform: translateX(0); opacity: 1; }
         }
 
-        /* --- IPv6 Tag --- */
+        /* --- IP Tag --- */
         .ip-tag {
             display: inline-block;
-            padding: 2px 6px;
+            padding: 2px 8px;
             border-radius: 4px;
             font-size: 11px;
             font-weight: 600;
-            margin-left: 6px;
         }
-        .ip-tag.v4 { background: rgba(34,197,94,0.15); color: var(--success); }
-        .ip-tag.v6 { background: rgba(124,92,247,0.15); color: var(--accent); }
+        .ip-tag.v4 { background: var(--success-light); color: var(--success); }
+        .ip-tag.v6 { background: var(--accent-light); color: var(--accent); }
 
         /* --- Protocol Toggle --- */
         .protocol-toggle {
@@ -291,7 +345,7 @@
             margin-bottom: 16px;
             border-radius: 10px;
             overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.1);
+            border: 1px solid var(--border);
             width: fit-content;
         }
         .protocol-toggle .toggle-btn {
@@ -306,27 +360,28 @@
             display: flex;
             align-items: center;
             gap: 8px;
+            font-family: inherit;
         }
         .protocol-toggle .toggle-btn:not(:last-child) {
-            border-right: 1px solid rgba(255,255,255,0.06);
+            border-right: 1px solid var(--border);
         }
         .protocol-toggle .toggle-btn.active-v4 {
-            background: linear-gradient(135deg, rgba(34,197,94,0.2), rgba(34,197,94,0.08));
+            background: var(--success-light);
             color: var(--success);
             box-shadow: inset 0 -2px 0 var(--success);
         }
         .protocol-toggle .toggle-btn.active-v6 {
-            background: linear-gradient(135deg, rgba(124,92,247,0.2), rgba(124,92,247,0.08));
+            background: var(--accent-light);
             color: var(--accent);
             box-shadow: inset 0 -2px 0 var(--accent);
         }
         .protocol-toggle .toggle-btn:hover:not(.active-v4):not(.active-v6) {
-            background: rgba(255,255,255,0.05);
+            background: var(--bg-primary);
             color: var(--text-primary);
         }
         .ipv6-notice {
-            background: rgba(124,92,247,0.08);
-            border: 1px solid rgba(124,92,247,0.2);
+            background: var(--accent-light);
+            border: 1px solid rgba(79,70,229,0.15);
             border-radius: 8px;
             padding: 10px 14px;
             font-size: 13px;
@@ -336,11 +391,11 @@
         }
         .ipv6-notice.show { display: block; }
 
-        /* --- Edit Modal --- */
+        /* --- Modal --- */
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.6);
+            background: rgba(0,0,0,0.3);
             backdrop-filter: blur(4px);
             z-index: 500;
             display: none;
@@ -355,15 +410,18 @@
             padding: 28px;
             width: 420px;
             max-width: 90vw;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+            box-shadow: var(--shadow-lg);
         }
         .modal-card h3 {
             font-size: 16px;
+            font-weight: 600;
             margin-bottom: 20px;
             display: flex;
             align-items: center;
             gap: 8px;
+            color: var(--text-primary);
         }
+        .modal-card h3 .icon-svg { color: var(--accent); }
         .modal-actions {
             display: flex;
             gap: 10px;
@@ -386,13 +444,33 @@
 
     <!-- Header -->
     <div class="header">
-        <h1>🔀 nftables 转发管理面板</h1>
+        <h1>
+            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line>
+                <polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line>
+                <line x1="4" y1="4" x2="9" y2="9"></line>
+            </svg>
+            nftables 转发管理
+        </h1>
         <div class="header-right">
             <div class="status-badge stopped" id="statusBadge">
                 <div class="status-dot"></div>
                 <span id="statusText">检测中...</span>
             </div>
-            <button class="btn btn-outline btn-sm" id="logoutBtn">退出登录</button>
+            <button class="btn btn-ghost btn-sm" id="changePasswordBtn" title="修改密码">
+                <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+            </button>
+            <button class="btn btn-outline btn-sm" id="logoutBtn">
+                <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                    <polyline points="16 17 21 12 16 7"></polyline>
+                    <line x1="21" y1="12" x2="9" y2="12"></line>
+                </svg>
+                退出
+            </button>
         </div>
     </div>
 
@@ -401,15 +479,32 @@
 
         <!-- Service Controls -->
         <div class="service-controls">
-            <button class="btn btn-success" id="startBtn">▶ 启动</button>
-            <button class="btn btn-danger" id="stopBtn">⏹ 停止</button>
-            <button class="btn btn-warning" id="restartBtn">🔄 重启</button>
+            <button class="btn btn-success" id="startBtn">
+                <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                启动
+            </button>
+            <button class="btn btn-danger" id="stopBtn">
+                <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg>
+                停止
+            </button>
+            <button class="btn btn-warning" id="restartBtn">
+                <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                重启
+            </button>
         </div>
 
         <!-- Rules Table -->
         <div class="card">
             <div class="card-header">
-                <h2>📋 转发规则列表</h2>
+                <h2>
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line>
+                        <line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>
+                    </svg>
+                    转发规则列表
+                </h2>
                 <span style="font-size:13px;color:var(--text-secondary)" id="ruleCount">共 0 条</span>
             </div>
             <div class="table-wrapper">
@@ -453,16 +548,23 @@
         <!-- Add Single Rule -->
         <div class="card">
             <div class="card-header">
-                <h2>➕ 添加转发规则</h2>
+                <h2>
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line>
+                    </svg>
+                    添加转发规则
+                </h2>
             </div>
             <div class="card-body">
                 <!-- IPv4/IPv6 Toggle -->
                 <div class="protocol-toggle" id="protocolToggle">
                     <button class="toggle-btn active-v4" data-proto="ipv4" id="toggleV4">
-                        🌐 IPv4
+                        <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                        IPv4
                     </button>
                     <button class="toggle-btn" data-proto="ipv6" id="toggleV6">
-                        🔗 IPv6
+                        <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                        IPv6
                     </button>
                 </div>
 
@@ -488,7 +590,10 @@
                         <input type="text" id="ruleNote" placeholder="如: 东京节点">
                     </div>
                     <div class="form-group">
-                        <button class="btn btn-primary" id="addRuleBtn" style="margin-top:20px">添加规则</button>
+                        <button class="btn btn-primary" id="addRuleBtn" style="margin-top:20px">
+                            <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                            添加规则
+                        </button>
                     </div>
                 </div>
             </div>
@@ -497,7 +602,13 @@
         <!-- Batch Add Rules -->
         <div class="card">
             <div class="card-header">
-                <h2>📦 批量添加转发规则</h2>
+                <h2>
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line>
+                    </svg>
+                    批量添加转发规则
+                </h2>
             </div>
             <div class="card-body">
                 <div class="form-group">
@@ -508,7 +619,10 @@
                     IPv4 格式：<code>中转端口:落地IP:目标端口</code> &nbsp;|&nbsp;
                     IPv6 格式：<code>中转端口:[IPv6地址]:目标端口</code>
                 </div>
-                <button class="btn btn-primary" id="batchAddBtn" style="margin-top:14px">批量添加</button>
+                <button class="btn btn-primary" id="batchAddBtn" style="margin-top:14px">
+                    <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    批量添加
+                </button>
             </div>
         </div>
     </div>
@@ -516,7 +630,13 @@
     <!-- 编辑规则模态框 -->
     <div class="modal-overlay" id="editModal">
         <div class="modal-card">
-            <h3>✏️ 编辑转发规则</h3>
+            <h3>
+                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+                编辑转发规则
+            </h3>
             <input type="hidden" id="editRuleId">
             <div class="form-group" style="margin-bottom:14px">
                 <label>目标地址</label>
@@ -533,6 +653,35 @@
             <div class="modal-actions">
                 <button class="btn btn-outline" id="editCancelBtn">取消</button>
                 <button class="btn btn-primary" id="editSaveBtn">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 修改密码模态框 -->
+    <div class="modal-overlay" id="passwordModal">
+        <div class="modal-card">
+            <h3>
+                <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                修改密码
+            </h3>
+            <div class="form-group" style="margin-bottom:14px">
+                <label>当前密码</label>
+                <input type="password" id="oldPassword" placeholder="请输入当前密码">
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+                <label>新密码</label>
+                <input type="password" id="newPassword" placeholder="请输入新密码">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+                <label>确认新密码</label>
+                <input type="password" id="confirmPassword" placeholder="再次输入新密码">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-outline" id="pwdCancelBtn">取消</button>
+                <button class="btn btn-primary" id="pwdSaveBtn">确认修改</button>
             </div>
         </div>
     </div>

@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const addrLabel = document.getElementById('addrLabel');
     const remoteAddrInput = document.getElementById('remoteAddr');
     const editModal = document.getElementById('editModal');
+    const passwordModal = document.getElementById('passwordModal');
 
     let currentPage = 1;
     let pageSize = 10;
@@ -346,6 +347,71 @@ document.addEventListener('DOMContentLoaded', () => {
             window.location.href = '/login';
         } catch {
             window.location.href = '/login';
+        }
+    });
+
+    // --- 修改密码 ---
+    const changePasswordBtn = document.getElementById('changePasswordBtn');
+    const pwdCancelBtn = document.getElementById('pwdCancelBtn');
+    const pwdSaveBtn = document.getElementById('pwdSaveBtn');
+
+    // 打开修改密码弹窗
+    changePasswordBtn.addEventListener('click', () => {
+        document.getElementById('oldPassword').value = '';
+        document.getElementById('newPassword').value = '';
+        document.getElementById('confirmPassword').value = '';
+        passwordModal.classList.add('show');
+    });
+
+    // 关闭修改密码弹窗
+    pwdCancelBtn.addEventListener('click', () => {
+        passwordModal.classList.remove('show');
+    });
+    passwordModal.addEventListener('click', (e) => {
+        if (e.target === passwordModal) passwordModal.classList.remove('show');
+    });
+
+    // 提交修改密码
+    pwdSaveBtn.addEventListener('click', async () => {
+        const oldPwd = document.getElementById('oldPassword').value.trim();
+        const newPwd = document.getElementById('newPassword').value.trim();
+        const confirmPwd = document.getElementById('confirmPassword').value.trim();
+
+        if (!oldPwd || !newPwd || !confirmPwd) {
+            showToast('请填写所有密码字段', 'error');
+            return;
+        }
+        if (newPwd !== confirmPwd) {
+            showToast('两次输入的新密码不一致', 'error');
+            return;
+        }
+        if (newPwd.length < 4) {
+            showToast('新密码至少 4 个字符', 'error');
+            return;
+        }
+
+        pwdSaveBtn.disabled = true;
+        pwdSaveBtn.textContent = '修改中...';
+
+        try {
+            const res = await fetch('/api/password', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    old_password: oldPwd,
+                    new_password: newPwd
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || '修改失败');
+
+            showToast('密码修改成功', 'success');
+            passwordModal.classList.remove('show');
+        } catch (err) {
+            showToast(err.message, 'error');
+        } finally {
+            pwdSaveBtn.disabled = false;
+            pwdSaveBtn.textContent = '确认修改';
         }
     });
 

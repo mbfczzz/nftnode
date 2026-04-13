@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>nftables 转发面板 - 登录</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -11,99 +13,129 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            font-family: 'Inter', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 30%, #dbeafe 60%, #ede9fe 100%);
             overflow: hidden;
         }
-        .bg-animation {
+
+        /* 背景装饰圆 */
+        .bg-decor {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 0; pointer-events: none;
+            z-index: 0; pointer-events: none; overflow: hidden;
         }
-        .bg-animation span {
-            position: absolute; display: block; width: 20px; height: 20px;
-            background: rgba(255,255,255,0.04); border-radius: 50%;
-            animation: float 25s linear infinite;
+        .bg-decor .circle {
+            position: absolute; border-radius: 50%;
+            animation: float-gentle 20s ease-in-out infinite;
         }
-        .bg-animation span:nth-child(1){left:25%;width:80px;height:80px;animation-delay:0s;animation-duration:20s}
-        .bg-animation span:nth-child(2){left:10%;width:20px;height:20px;animation-delay:2s;animation-duration:25s}
-        .bg-animation span:nth-child(3){left:70%;width:40px;height:40px;animation-delay:4s;animation-duration:18s}
-        .bg-animation span:nth-child(4){left:40%;width:60px;height:60px;animation-delay:0s;animation-duration:22s}
-        .bg-animation span:nth-child(5){left:65%;width:20px;height:20px;animation-delay:3s;animation-duration:30s}
-        .bg-animation span:nth-child(6){left:85%;width:110px;height:110px;animation-delay:7s;animation-duration:28s}
-        @keyframes float {
-            0% { transform: translateY(100vh) rotate(0deg); opacity: 1; }
-            100% { transform: translateY(-100vh) rotate(720deg); opacity: 0; }
+        .bg-decor .circle:nth-child(1) {
+            width: 300px; height: 300px; top: -80px; right: -60px;
+            background: radial-gradient(circle, rgba(79,70,229,0.08), transparent 70%);
+            animation-duration: 25s;
+        }
+        .bg-decor .circle:nth-child(2) {
+            width: 200px; height: 200px; bottom: -40px; left: -40px;
+            background: radial-gradient(circle, rgba(16,185,129,0.08), transparent 70%);
+            animation-duration: 20s; animation-delay: 3s;
+        }
+        .bg-decor .circle:nth-child(3) {
+            width: 150px; height: 150px; top: 40%; left: 15%;
+            background: radial-gradient(circle, rgba(245,158,11,0.06), transparent 70%);
+            animation-duration: 18s; animation-delay: 5s;
+        }
+        @keyframes float-gentle {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-20px) scale(1.05); }
         }
 
         .login-card {
             position: relative; z-index: 1;
-            background: rgba(255,255,255,0.05);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(255,255,255,0.1);
+            background: #ffffff;
+            border: 1px solid rgba(0,0,0,0.06);
             border-radius: 20px;
             padding: 48px 40px;
             width: 400px; max-width: 90vw;
-            box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04);
+        }
+        .login-icon {
+            width: 48px; height: 48px;
+            background: #eef2ff;
+            border-radius: 14px;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 20px;
+        }
+        .login-icon svg {
+            width: 24px; height: 24px; color: #4f46e5;
         }
         .login-card h1 {
-            color: #fff; font-size: 24px; text-align: center;
-            margin-bottom: 8px; font-weight: 600;
+            color: #111827; font-size: 22px; text-align: center;
+            margin-bottom: 6px; font-weight: 700;
         }
         .login-card .subtitle {
-            color: rgba(255,255,255,0.5); font-size: 14px;
-            text-align: center; margin-bottom: 36px;
+            color: #9ca3af; font-size: 14px;
+            text-align: center; margin-bottom: 32px;
         }
         .input-group {
-            position: relative; margin-bottom: 24px;
+            position: relative; margin-bottom: 20px;
         }
         .input-group .icon {
-            position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
-            color: rgba(255,255,255,0.3); font-size: 18px;
+            position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+            color: #9ca3af; width: 18px; height: 18px;
         }
         .input-group input {
-            width: 100%; padding: 14px 16px 14px 48px;
-            background: rgba(255,255,255,0.07);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 12px; color: #fff; font-size: 15px;
-            outline: none; transition: all 0.3s;
+            width: 100%; padding: 13px 16px 13px 44px;
+            background: #f5f7fa;
+            border: 1px solid rgba(0,0,0,0.08);
+            border-radius: 12px; color: #111827; font-size: 15px;
+            font-family: inherit;
+            outline: none; transition: all 0.2s;
         }
-        .input-group input::placeholder { color: rgba(255,255,255,0.3); }
+        .input-group input::placeholder { color: #9ca3af; }
         .input-group input:focus {
-            border-color: #7c5cf7;
-            background: rgba(124,92,247,0.08);
-            box-shadow: 0 0 20px rgba(124,92,247,0.15);
+            border-color: #4f46e5;
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
         }
         .login-btn {
-            width: 100%; padding: 14px;
-            background: linear-gradient(135deg, #7c5cf7, #6c63ff);
+            width: 100%; padding: 13px;
+            background: #4f46e5;
             border: none; border-radius: 12px;
-            color: #fff; font-size: 16px; font-weight: 600;
-            cursor: pointer; transition: all 0.3s;
+            color: #fff; font-size: 15px; font-weight: 600;
+            font-family: inherit;
+            cursor: pointer; transition: all 0.2s;
         }
         .login-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(124,92,247,0.4);
+            background: #4338ca;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(79,70,229,0.3);
         }
         .login-btn:active { transform: translateY(0); }
         .error-msg {
-            color: #ff6b6b; font-size: 13px; text-align: center;
+            color: #ef4444; font-size: 13px; text-align: center;
             margin-top: 16px; min-height: 20px;
         }
     </style>
 </head>
 <body>
-    <div class="bg-animation">
-        <span></span><span></span><span></span>
-        <span></span><span></span><span></span>
+    <div class="bg-decor">
+        <div class="circle"></div>
+        <div class="circle"></div>
+        <div class="circle"></div>
     </div>
 
     <div class="login-card">
-        <h1>🔒 nftables 转发面板</h1>
+        <div class="login-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+        </div>
+        <h1>nftables 转发面板</h1>
         <p class="subtitle">请输入密码以登录管理面板</p>
 
         <div class="input-group">
-            <span class="icon">🔑</span>
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path>
+            </svg>
             <input type="password" id="password" placeholder="请输入登录密码" autofocus>
         </div>
 
