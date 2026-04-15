@@ -528,7 +528,10 @@ view_nodes() {
         local server_ip
         server_ip=$(curl -s --max-time 3 ip.sb 2>/dev/null)
         if [ -n "$server_ip" ]; then
-            local ss_link="ss://$(echo -n "${ss_method}:${ss_pwd}@${server_ip}:${ss_port}" | base64 -w 0)"
+            # IPv6 地址需要用方括号包裹，否则客户端无法区分地址和端口
+            local ss_host="$server_ip"
+            is_ipv6 "$server_ip" && ss_host="[${server_ip}]"
+            local ss_link="ss://$(echo -n "${ss_method}:${ss_pwd}@${ss_host}:${ss_port}" | base64 -w 0)"
             echo ""
             echo -e "  ${GREEN}连接链接:${PLAIN}"
             echo -e "  ${YELLOW}${ss_link}${PLAIN}"

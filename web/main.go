@@ -969,7 +969,12 @@ func main() {
 								if port, ok := node["port"].(int); ok {
 									userInfo := fmt.Sprintf("%s:%s", method, pwd)
 									encoded := base64.StdEncoding.EncodeToString([]byte(userInfo))
-									node["link"] = fmt.Sprintf("ss://%s@%s:%d#SS-%d", encoded, serverIP, port, port)
+									// IPv6 地址需要方括号包裹，否则客户端无法区分地址和端口
+									host := serverIP
+									if strings.Contains(serverIP, ":") {
+										host = "[" + serverIP + "]"
+									}
+									node["link"] = fmt.Sprintf("ss://%s@%s:%d#SS-%d", encoded, host, port, port)
 								}
 							}
 						}

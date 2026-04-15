@@ -220,8 +220,12 @@ EOF
 generate_client_info() {
     echo -e "${CYAN}生成客户端配置信息...${PLAIN}"
     
-    # 编码为SS URL
-    SS_LINK=$(echo -n "aes-128-gcm:${SS_PASSWORD}@${IP}:${SS_PORT}" | base64 -w 0)
+    # 编码为SS URL（IPv6 地址需要方括号包裹）
+    local SS_HOST="$IP"
+    if [[ "$IP" == *":"* ]]; then
+        SS_HOST="[${IP}]"
+    fi
+    SS_LINK=$(echo -n "aes-128-gcm:${SS_PASSWORD}@${SS_HOST}:${SS_PORT}" | base64 -w 0)
     
     # 检查服务状态
     SS_STATUS=$(systemctl is-active shadowsocks.service)
