@@ -600,6 +600,33 @@ install_panel() {
     if wget -O "/tmp/$p_file" "$url" 2>/dev/null || curl -L -o "/tmp/$p_file" "$url" 2>/dev/null; then
         tar -xzf "/tmp/$p_file" -C "$PANEL_DIR" && chmod +x "$PANEL_BIN" && rm -f "/tmp/$p_file"
 
+        # 如果 config.toml 不存在，自动生成默认配置
+        if [ ! -f "${PANEL_DIR}/config.toml" ]; then
+            cat > "${PANEL_DIR}/config.toml" <<'CFGEOF'
+# nftables 转发面板配置
+
+[auth]
+password = "admin123"
+
+[server]
+port = 3456
+
+[https]
+enabled = false
+cert_file = "./certificate/cert.pem"
+key_file = "./certificate/private.key"
+
+[nftables]
+config_path = "/etc/nftables.conf"
+rules_path = "/root/.nft-forward/rules.json"
+
+[session]
+# secret = ""  # 首次运行时会自动生成随机密钥
+CFGEOF
+            chmod 600 "${PANEL_DIR}/config.toml"
+            echo -e "${GREEN}已生成默认配置 config.toml，请及时修改默认密码！${PLAIN}"
+        fi
+
         cat > "$PANEL_SERVICE" <<EOF
 [Unit]
 Description=nftables Forward Web Panel
