@@ -4,6 +4,9 @@
 web/nft_panel
 web/web
 
+# Release archives (distribute via GitHub Releases, not in repo)
+web/*.tar.gz
+
 # Go caches (created when GOCACHE/GOMODCACHE point into project dir)
 .gocache/
 .gomodcache/
