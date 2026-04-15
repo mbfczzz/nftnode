@@ -959,7 +959,12 @@ func main() {
 				}
 
 				// 获取服务器 IP 用于生成 SS 链接
-				if ipOut, err := exec.Command("curl", "-s", "--max-time", "3", "ip.sb").Output(); err == nil {
+				// 优先获取 IPv4 地址，失败再回退 IPv6
+				ipOut, err := exec.Command("curl", "-s", "-4", "--max-time", "3", "ip.sb").Output()
+				if err != nil || len(strings.TrimSpace(string(ipOut))) == 0 {
+					ipOut, err = exec.Command("curl", "-s", "--max-time", "3", "ip.sb").Output()
+				}
+				if err == nil {
 					serverIP := strings.TrimSpace(string(ipOut))
 					if serverIP != "" {
 						node["address"] = serverIP

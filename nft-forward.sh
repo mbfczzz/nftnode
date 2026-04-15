@@ -526,7 +526,9 @@ view_nodes() {
 
         # 获取服务器 IP 并生成 SS 链接
         local server_ip
-        server_ip=$(curl -s --max-time 3 ip.sb 2>/dev/null)
+        # 优先获取 IPv4 地址，失败则回退获取 IPv6
+        server_ip=$(curl -s -4 --max-time 3 ip.sb 2>/dev/null)
+        [ -z "$server_ip" ] && server_ip=$(curl -s --max-time 3 ip.sb 2>/dev/null)
         if [ -n "$server_ip" ]; then
             # IPv6 地址需要用方括号包裹，否则客户端无法区分地址和端口
             local ss_host="$server_ip"
