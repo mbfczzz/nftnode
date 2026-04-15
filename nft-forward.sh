@@ -110,7 +110,16 @@ init_env() {
         echo '[]' > "$RULES_FILE"
     fi
 
-    # 开启内核转发（使用独立 sysctl 文件，不污染系统配置）
+    # 开启内核转发
+    # 先处理 /etc/sysctl.conf 中可能存在的冲突配置（某些 VPS 镜像预设 ip_forward=0）
+    if grep -qE '^\s*net\.ipv4\.ip_forward\s*=\s*0' /etc/sysctl.conf 2>/dev/null; then
+        sed -i 's/^\s*net\.ipv4\.ip_forward\s*=\s*0/net.ipv4.ip_forward=1/' /etc/sysctl.conf
+        echo -e "${YELLOW}已修正 /etc/sysctl.conf 中的 ip_forward=0${PLAIN}"
+    fi
+    if grep -qE '^\s*net\.ipv6\.conf\.all\.forwarding\s*=\s*0' /etc/sysctl.conf 2>/dev/null; then
+        sed -i 's/^\s*net\.ipv6\.conf\.all\.forwarding\s*=\s*0/net.ipv6.conf.all.forwarding=1/' /etc/sysctl.conf
+    fi
+    # 独立 sysctl 文件作为兜底
     cat > /etc/sysctl.d/99-nft-forward.conf <<SYSEOF
 net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
