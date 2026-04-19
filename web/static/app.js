@@ -1,5 +1,5 @@
 // ============================================================
-//  nftables 转发管理面板 - 前端逻辑
+//  nftables 转发管理面板 - 前端逻辑（含流量监控 + 节点总览）
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -23,6 +23,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let totalRules = 0;
     let allRules = [];
     let selectedProto = 'ipv4'; // 当前选中的协议
+
+    // --- 工具函数 ---
+    function formatBytes(bytes) {
+        if (!bytes || bytes === 0) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const k = 1024;
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + units[i];
+    }
 
     // --- IPv4/IPv6 协议切换 ---
     function setProtocol(proto) {
@@ -90,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ruleCount.textContent = `共 ${totalRules} 条`;
             renderRules();
         } catch (e) {
-            rulesBody.innerHTML = '<tr class="empty-row"><td colspan="8">获取规则失败</td></tr>';
+            rulesBody.innerHTML = '<tr class="empty-row"><td colspan="10">获取规则失败</td></tr>';
         }
     }
 
@@ -100,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderRules() {
         if (allRules.length === 0) {
-            rulesBody.innerHTML = '<tr class="empty-row"><td colspan="8">暂无转发规则</td></tr>';
+            rulesBody.innerHTML = '<tr class="empty-row"><td colspan="10">暂无转发规则</td></tr>';
             updatePagination();
             return;
         }
@@ -113,19 +122,54 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? '<span class="ip-tag v6">IPv6</span>'
                 : '<span class="ip-tag v4">IPv4</span>';
             const note = rule.note || '-';
+            const suspended = rule.enabled === false;
+            const rowClass = suspended ? 'rule-suspended' : '';
 
-            return `<tr>
+            // 流量进度条
+            let trafficHtml = '';
+            const usedBytes = rule.used_bytes || 0;
+            const quotaGB = rule.quota_gb || 0;
+            const resetDay = rule.reset_day || 0;
+            const resetInfo = resetDay > 0 ? `每月${resetDay}号重置` : '';
+            if (quotaGB > 0) {
+                const quotaBytes = quotaGB * 1024 * 1024 * 1024;
+                const pct = Math.min(100, (usedBytes / quotaBytes) * 100);
+                const barColor = pct >= 100 ? 'red' : pct >= 80 ? 'yellow' : 'green';
+                const textClass = pct >= 100 ? 'exceeded' : '';
+                trafficHtml = `
+                    <div class="traffic-cell">
+                        <div class="traffic-text ${textClass}">${formatBytes(usedBytes)} / ${quotaGB} GB</div>
+                        <div class="traffic-bar"><div class="traffic-bar-fill ${barColor}" style="width:${pct.toFixed(1)}%"></div></div>
+                        ${resetInfo ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">${resetInfo}</div>` : ''}
+                    </div>`;
+            } else {
+                trafficHtml = `<div class="traffic-text">${formatBytes(usedBytes)} / 不限</div>`;
+            }
+
+            // 状态标签
+            const statusTag = suspended
+                ? '<span class="status-tag suspended">已封停</span>'
+                : '<span class="status-tag active">正常</span>';
+
+            // 操作按钮（增加重置按钮）
+            let actionsHtml = `
+                <button class="btn btn-outline btn-sm" data-action="edit" data-id="${rule.id}" data-addr="${addr}" data-port="${rule.remote_port}" data-note="${rule.note || ''}" data-quota="${quotaGB}">编辑</button>
+                <button class="btn btn-danger btn-sm" data-action="delete" data-id="${rule.id}">删除</button>`;
+            if (quotaGB > 0) {
+                actionsHtml += `<button class="btn btn-warning btn-sm" data-action="reset" data-id="${rule.id}" title="清零流量并恢复转发">重置</button>`;
+            }
+
+            return `<tr class="${rowClass}">
                 <td>${globalIdx}</td>
                 <td><strong>${rule.local_port}</strong></td>
                 <td>${tag}</td>
                 <td>${addr}</td>
                 <td>${rule.remote_port}</td>
                 <td>TCP + UDP</td>
+                <td>${trafficHtml}</td>
+                <td>${statusTag}</td>
                 <td style="color:var(--text-secondary);font-size:13px;max-width:120px;overflow:hidden;text-overflow:ellipsis" title="${note}">${note}</td>
-                <td>
-                    <button class="btn btn-outline btn-sm" data-action="edit" data-id="${rule.id}" data-addr="${addr}" data-port="${rule.remote_port}" data-note="${rule.note || ''}">编辑</button>
-                    <button class="btn btn-danger btn-sm" data-action="delete" data-id="${rule.id}">删除</button>
-                </td>
+                <td>${actionsHtml}</td>
             </tr>`;
         }).join('');
 
@@ -170,6 +214,21 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('editRemotePort').value = btn.dataset.port || '';
             document.getElementById('editRuleNote').value = btn.dataset.note || '';
             editModal.classList.add('show');
+        }
+
+        if (action === 'reset') {
+            if (!confirm('确定清零该端口的已用流量并恢复转发？')) return;
+            try {
+                const res = await fetch(`/api/rules/${id}/reset`, { method: 'POST' });
+                if (!res.ok) {
+                    const d = await res.json();
+                    throw new Error(d.error || '重置失败');
+                }
+                showToast('流量已重置', 'success');
+                await fetchRules();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
         }
     });
 
@@ -222,6 +281,8 @@ document.addEventListener('DOMContentLoaded', () => {
         let ra = document.getElementById('remoteAddr').value.trim();
         const rp = document.getElementById('remotePort').value.trim();
         const note = document.getElementById('ruleNote').value.trim();
+        const quota = parseFloat(document.getElementById('ruleQuota').value) || 0;
+        const resetDay = parseInt(document.getElementById('ruleResetDay').value) || 0;
 
         if (!lp || !ra || !rp) {
             showToast('请填写所有必填字段', 'error');
@@ -241,7 +302,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     local_port: lp,
                     remote_addr: ra,
                     remote_port: rp,
-                    note: note
+                    note: note,
+                    quota_gb: quota,
+                    reset_day: resetDay
                 })
             });
             const data = await res.json();
@@ -252,6 +315,8 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('remoteAddr').value = '';
             document.getElementById('remotePort').value = '';
             document.getElementById('ruleNote').value = '';
+            document.getElementById('ruleQuota').value = '';
+            document.getElementById('ruleResetDay').value = '';
             await fetchRules();
             await updateStatus();
         } catch (e) {
@@ -429,7 +494,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchRules();
     });
 
-    // --- 节点查看 ---
+    // --- 节点查看（本地代理） ---
     const nodesContainer = document.getElementById('nodesContainer');
 
     async function fetchNodes() {
@@ -521,11 +586,183 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchNodes();
     });
 
+    // --- 节点总览（主控大盘） ---
+    const overviewCard = document.getElementById('overviewCard');
+    const overviewBody = document.getElementById('overviewBody');
+
+    async function fetchOverview() {
+        try {
+            const res = await fetch('/api/nodes/overview');
+            if (!res.ok) throw new Error('获取失败');
+            const data = await res.json();
+            const nodes = data.nodes || [];
+            if (nodes.length === 0) {
+                // 没有配置远程被控节点，则隐藏总览板块
+                overviewCard.hidden = true;
+                return;
+            }
+            overviewCard.hidden = false;
+            renderOverview(nodes);
+        } catch (e) {
+            // 如果接口报错，静默隐藏
+            overviewCard.hidden = true;
+        }
+    }
+
+    function renderOverview(nodes) {
+        overviewBody.innerHTML = nodes.map((node, idx) => {
+            const onlineClass = node.online ? 'on' : 'off';
+            const onlineText = node.online ? '在线' : '离线';
+            const rulesCount = (node.rules || []).length;
+            const totalUsed = (node.rules || []).reduce((s, r) => s + (r.used_bytes || 0), 0);
+            const totalQuota = (node.rules || []).reduce((s, r) => s + (r.quota_gb || 0), 0);
+            const quotaText = totalQuota > 0 ? `${totalQuota} GB` : '不限';
+            const lastSeen = node.last_seen ? new Date(node.last_seen).toLocaleTimeString() : '-';
+            const rowStyle = node.online ? '' : 'style="color:var(--danger); opacity:0.7"';
+
+            return `<tr data-node-idx="${idx}" ${rowStyle}>
+                <td><strong>${node.name || node.hostname || node.url}</strong></td>
+                <td><span class="online-dot ${onlineClass}"></span>${onlineText}</td>
+                <td>${rulesCount}</td>
+                <td>${formatBytes(totalUsed)}</td>
+                <td>${quotaText}</td>
+                <td>${lastSeen}</td>
+            </tr>`;
+        }).join('');
+
+        // 点击展开节点明细
+        overviewBody.querySelectorAll('tr[data-node-idx]').forEach(tr => {
+            tr.addEventListener('click', () => {
+                const idx = parseInt(tr.dataset.nodeIdx);
+                const existing = tr.nextElementSibling;
+                if (existing && existing.classList.contains('node-detail-row')) {
+                    existing.remove();
+                    return;
+                }
+                const node = nodes[idx];
+                const rules = node.rules || [];
+                if (rules.length === 0) return;
+
+                const detailHtml = `<tr class="node-detail-row"><td colspan="6">
+                    <div class="node-detail-content">
+                        <table>
+                            <tr><th>端口</th><th>目标</th><th>已用</th><th>配额</th><th>状态</th></tr>
+                            ${rules.map(r => {
+                                const statusText = r.enabled === false ? '<span class="status-tag suspended">封停</span>' : '<span class="status-tag active">正常</span>';
+                                const quota = r.quota_gb > 0 ? `${r.quota_gb} GB` : '不限';
+                                return `<tr>
+                                    <td>${r.local_port}</td>
+                                    <td>${r.remote_addr}:${r.remote_port}</td>
+                                    <td>${formatBytes(r.used_bytes || 0)}</td>
+                                    <td>${quota}</td>
+                                    <td>${statusText}</td>
+                                </tr>`;
+                            }).join('')}
+                        </table>
+                    </div>
+                </td></tr>`;
+                tr.insertAdjacentHTML('afterend', detailHtml);
+            });
+        });
+    }
+
+    const refreshOverviewBtn = document.getElementById('refreshOverviewBtn');
+    if (refreshOverviewBtn) {
+        refreshOverviewBtn.addEventListener('click', () => {
+            overviewBody.innerHTML = '<tr><td colspan="6" class="overview-empty">刷新中...</td></tr>';
+            fetchOverview();
+        });
+    }
+
+    // --- 节点管理 CRUD ---
+    const nodeManageList = document.getElementById('nodeManageList');
+
+    async function fetchNodeManage() {
+        try {
+            const res = await fetch('/api/nodes/manage');
+            if (!res.ok) throw new Error('获取失败');
+            const data = await res.json();
+            renderNodeManage(data.nodes || []);
+            // 有节点就显示总览卡片
+            if (data.nodes && data.nodes.length > 0) {
+                overviewCard.hidden = false;
+            }
+        } catch (e) {
+            nodeManageList.innerHTML = '<div style="color:var(--text-muted);font-size:13px">获取节点列表失败</div>';
+        }
+    }
+
+    function renderNodeManage(nodes) {
+        if (nodes.length === 0) {
+            nodeManageList.innerHTML = '<div style="color:var(--text-muted);font-size:13px">未配置监控节点，在下方添加被控服务器</div>';
+            return;
+        }
+        nodeManageList.innerHTML = nodes.map((n, idx) => {
+            return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
+                <strong style="flex:1;font-size:13px">${n.name}</strong>
+                <span style="flex:2;font-size:12px;color:var(--text-secondary);font-family:monospace">${n.url}</span>
+                <span style="flex:1;font-size:12px;color:var(--text-muted);font-family:monospace;overflow:hidden;text-overflow:ellipsis" title="${n.token}">${n.token.substring(0,12)}...</span>
+                <button class="btn btn-danger btn-sm" data-del-node="${idx}">删除</button>
+            </div>`;
+        }).join('');
+
+        nodeManageList.querySelectorAll('[data-del-node]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const idx = btn.dataset.delNode;
+                if (!confirm('确定删除此监控节点？')) return;
+                try {
+                    const res = await fetch(`/api/nodes/manage/${idx}`, { method: 'DELETE' });
+                    if (!res.ok) {
+                        const d = await res.json();
+                        throw new Error(d.error || '删除失败');
+                    }
+                    showToast('节点已删除', 'success');
+                    fetchNodeManage();
+                    fetchOverview();
+                } catch (err) {
+                    showToast(err.message, 'error');
+                }
+            });
+        });
+    }
+
+    document.getElementById('addNodeBtn').addEventListener('click', async () => {
+        const name = document.getElementById('nodeManageName').value.trim();
+        const url = document.getElementById('nodeManageURL').value.trim();
+        const token = document.getElementById('nodeManageToken').value.trim();
+        if (!name || !url || !token) {
+            showToast('节点名称、地址和 Token 不能为空', 'error');
+            return;
+        }
+        try {
+            const res = await fetch('/api/nodes/manage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, url, token })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || '添加失败');
+            showToast('节点已添加', 'success');
+            document.getElementById('nodeManageName').value = '';
+            document.getElementById('nodeManageURL').value = '';
+            document.getElementById('nodeManageToken').value = '';
+            fetchNodeManage();
+            // 60秒后自动拉取总览
+            setTimeout(fetchOverview, 2000);
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+    });
+
     // --- 初始化 ---
     fetchRules();
     updateStatus();
     fetchNodes();
+    fetchOverview();
+    fetchNodeManage();
 
-    // 定时刷新状态
+    // 定时刷新状态与流量
     setInterval(updateStatus, 15000);
+    setInterval(fetchRules, 60000);    // 每60秒刷新规则（含流量数据）
+    setInterval(fetchOverview, 60000); // 每60秒刷新节点总览
 });

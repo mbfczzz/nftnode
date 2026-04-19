@@ -486,6 +486,111 @@
         }
         .ipv6-notice.show { display: block; }
 
+        /* --- Traffic Progress Bar --- */
+        .traffic-cell { min-width: 160px; }
+        .traffic-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--bg-input);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+        .traffic-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+        .traffic-bar-fill.green { background: var(--success); }
+        .traffic-bar-fill.yellow { background: var(--warning); }
+        .traffic-bar-fill.red { background: var(--danger); }
+        .traffic-text {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .traffic-text.exceeded {
+            color: var(--danger);
+            font-weight: 600;
+        }
+        .rule-suspended {
+            opacity: 0.5;
+        }
+        .rule-suspended td {
+            text-decoration: line-through;
+            text-decoration-color: var(--danger);
+        }
+        .status-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .status-tag.active { background: var(--success-light); color: var(--success); }
+        .status-tag.suspended { background: var(--danger-light); color: var(--danger); }
+
+        /* --- Node Overview Table --- */
+        .overview-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .overview-table thead th {
+            text-align: left;
+            padding: 10px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-input);
+            white-space: nowrap;
+        }
+        .overview-table tbody td {
+            padding: 12px 16px;
+            font-size: 14px;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        .overview-table tbody tr { transition: background 0.15s; cursor: pointer; }
+        .overview-table tbody tr:hover { background: var(--accent-light); }
+        .overview-table tbody tr:last-child td { border-bottom: none; }
+        .online-dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .online-dot.on { background: var(--success); box-shadow: 0 0 6px var(--success); }
+        .online-dot.off { background: var(--danger); }
+        .node-detail-row td {
+            padding: 0 !important;
+            border-bottom: 1px solid var(--border);
+        }
+        .node-detail-content {
+            padding: 12px 24px;
+            background: var(--bg-input);
+        }
+        .node-detail-content table {
+            width: 100%;
+            font-size: 13px;
+        }
+        .node-detail-content table th {
+            font-weight: 600;
+            color: var(--text-secondary);
+            padding: 6px 12px;
+            text-align: left;
+        }
+        .node-detail-content table td {
+            padding: 6px 12px;
+        }
+        .overview-empty {
+            text-align: center;
+            color: var(--text-muted);
+            padding: 30px;
+            font-size: 14px;
+        }
+
         /* --- Modal --- */
         .modal-overlay {
             position: fixed;
@@ -590,6 +695,63 @@
             </button>
         </div>
 
+        <!-- 节点总览（主控大盘） -->
+        <div class="card" style="margin-bottom:20px" id="overviewCard" hidden>
+            <div class="card-header">
+                <h2>
+                    <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                    </svg>
+                    节点总览
+                </h2>
+                <button class="btn btn-outline btn-sm" id="refreshOverviewBtn">
+                    <svg class="icon-svg icon-svg-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                    </svg>
+                    刷新
+                </button>
+            </div>
+            <div class="table-wrapper">
+                <table class="overview-table">
+                    <thead>
+                        <tr>
+                            <th>节点名</th>
+                            <th>在线</th>
+                            <th>规则数</th>
+                            <th>总已用</th>
+                            <th>总配额</th>
+                            <th>最后更新</th>
+                        </tr>
+                    </thead>
+                    <tbody id="overviewBody">
+                        <tr><td colspan="6" class="overview-empty">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-body" style="border-top:1px solid var(--border)">
+                <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text-secondary)">管理监控节点</h3>
+                <div id="nodeManageList" style="margin-bottom:12px"></div>
+                <div class="form-grid" style="grid-template-columns: repeat(3, 1fr) auto; gap:10px; align-items:end">
+                    <div class="form-group">
+                        <label>节点名称</label>
+                        <input type="text" id="nodeManageName" placeholder="如: 东京中转">
+                    </div>
+                    <div class="form-group">
+                        <label>节点地址</label>
+                        <input type="text" id="nodeManageURL" placeholder="如: https://1.2.3.4:3456">
+                    </div>
+                    <div class="form-group">
+                        <label>Metrics Token</label>
+                        <input type="text" id="nodeManageToken" placeholder="被控端的 Token">
+                    </div>
+                    <div class="form-group">
+                        <button class="btn btn-primary btn-sm" id="addNodeBtn" style="margin-top:20px">添加节点</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Deployed Nodes -->
         <div class="card" style="margin-bottom:20px">
             <div class="card-header">
@@ -636,12 +798,14 @@
                             <th>目标地址</th>
                             <th>目标端口</th>
                             <th>协议</th>
+                            <th>流量 / 配额</th>
+                            <th>状态</th>
                             <th>备注</th>
                             <th>操作</th>
                         </tr>
                     </thead>
                     <tbody id="rulesBody">
-                        <tr class="empty-row"><td colspan="8">加载中...</td></tr>
+                        <tr class="empty-row"><td colspan="10">加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -707,6 +871,14 @@
                     <div class="form-group">
                         <label>备注（可选）</label>
                         <input type="text" id="ruleNote" placeholder="如: 东京节点">
+                    </div>
+                    <div class="form-group">
+                        <label>月配额 GB（可选）</label>
+                        <input type="number" id="ruleQuota" placeholder="0 = 不限额" min="0" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label>重置日（可选）</label>
+                        <input type="number" id="ruleResetDay" placeholder="每月几号自动清零 (1-31，0=不重置)" min="0" max="31" step="1">
                     </div>
                     <div class="form-group">
                         <button class="btn btn-primary" id="addRuleBtn" style="margin-top:20px">

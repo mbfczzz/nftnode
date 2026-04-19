@@ -41,11 +41,22 @@ var staticFS embed.FS
 // --- 数据结构 ---
 
 type ForwardRule struct {
-	ID         string `json:"id"`
-	LocalPort  string `json:"local_port"`
-	RemoteAddr string `json:"remote_addr"`
-	RemotePort string `json:"remote_port"`
-	Note       string `json:"note"`
+	ID            string  `json:"id"`
+	LocalPort     string  `json:"local_port"`
+	RemoteAddr    string  `json:"remote_addr"`
+	RemotePort    string  `json:"remote_port"`
+	Note          string  `json:"note"`
+	UsedBytes     uint64  `json:"used_bytes"`
+	QuotaGB       float64 `json:"quota_gb"`
+	Enabled       bool    `json:"enabled"`
+	ResetDay      int     `json:"reset_day"`       // 每月几号重置 (1-31)，0 不自动重置
+	LastResetTime string  `json:"last_reset_time"` // 上次重置的月份 "2026-04"
+}
+
+type NodeConf struct {
+	Name  string `toml:"name"`
+	URL   string `toml:"url"`
+	Token string `toml:"token"`
 }
 
 type PanelConfig struct {
@@ -68,6 +79,20 @@ type PanelConfig struct {
 	Session struct {
 		Secret string `toml:"secret"`
 	} `toml:"session"`
+	Metrics struct {
+		Token string `toml:"token"`
+	} `toml:"metrics"`
+	Nodes []NodeConf `toml:"nodes"`
+}
+
+// 主控端实体
+type NodeSnapshot struct {
+	Name     string        `json:"name"`
+	URL      string        `json:"url"`
+	Online   bool          `json:"online"`
+	LastSeen time.Time     `json:"last_seen"`
+	Hostname string        `json:"hostname"`
+	Rules    []ForwardRule `json:"rules"`
 }
 
 // --- 全局变量 ---
@@ -77,6 +102,9 @@ var (
 	rules       []ForwardRule
 	panelConfig PanelConfig
 	configPath  = "./config.toml"
+
+	nodesMu    sync.RWMutex
+	nodesCache []NodeSnapshot
 
 	// 登录限流：防暴力破解
 	loginMu        sync.Mutex
@@ -187,6 +215,19 @@ func LoadPanelConfig() error {
 		}
 	}
 
+	// 自动生成 Metrics Token
+	if panelConfig.Metrics.Token == "" {
+		token, err := generateRandomSecret(32)
+		if err != nil {
+			return fmt.Errorf("生成 Metrics Token 失败: %v", err)
+		}
+		panelConfig.Metrics.Token = token
+		log.Println("已自动生成 Metrics Token")
+		if err := savePanelConfig(); err != nil {
+			return fmt.Errorf("保存配置失败: %v", err)
+		}
+	}
+
 	// 没有任何密码配置 → 提示
 	if panelConfig.Auth.PasswordHash == "" && panelConfig.Auth.Password == "" {
 		log.Println("警告: 未配置任何密码，请在 config.toml 中设置 [auth] password")
@@ -230,7 +271,19 @@ func savePanelConfig() error {
 	buf.WriteString(fmt.Sprintf("rules_path = \"%s\"\n\n", panelConfig.Nftables.RulesPath))
 
 	buf.WriteString("[session]\n")
-	buf.WriteString(fmt.Sprintf("secret = \"%s\"\n", panelConfig.Session.Secret))
+	buf.WriteString(fmt.Sprintf("secret = \"%s\"\n\n", panelConfig.Session.Secret))
+
+	buf.WriteString("[metrics]\n")
+	buf.WriteString(fmt.Sprintf("token = \"%s\"\n\n", panelConfig.Metrics.Token))
+
+	if len(panelConfig.Nodes) > 0 {
+		for _, n := range panelConfig.Nodes {
+			buf.WriteString("[[nodes]]\n")
+			buf.WriteString(fmt.Sprintf("name = \"%s\"\n", n.Name))
+			buf.WriteString(fmt.Sprintf("url = \"%s\"\n", n.URL))
+			buf.WriteString(fmt.Sprintf("token = \"%s\"\n\n", n.Token))
+		}
+	}
 
 	return os.WriteFile(configPath, buf.Bytes(), 0600)
 }
@@ -250,7 +303,22 @@ func LoadRules() error {
 		rules = []ForwardRule{}
 		return saveRulesLocked()
 	}
-	return json.Unmarshal(data, &rules)
+	if err := json.Unmarshal(data, &rules); err != nil {
+		return err
+	}
+	
+	// 旧数据向后兼容：将新加载配置中因零值而判定停用的项，如果在初始态，强制修正为开启
+	changed := false
+	for i := range rules {
+		if !rules[i].Enabled && rules[i].UsedBytes == 0 && rules[i].QuotaGB == 0 {
+			rules[i].Enabled = true
+			changed = true
+		}
+	}
+	if changed {
+		_ = saveRulesLocked()
+	}
+	return nil
 }
 
 // 调用方必须持有 mu 锁
@@ -284,6 +352,10 @@ func generateNftConfLocked() error {
 	buf.WriteString("        type nat hook prerouting priority -100; policy accept;\n\n")
 
 	for _, rule := range rules {
+		if !rule.Enabled {
+			continue // 超额封停或被禁用的规则跳过其 NAT，拦截网络
+		}
+
 		// 安全: 经过校验的值再额外做一次 sanitize
 		lport := sanitizeForNft(rule.LocalPort)
 		rport := sanitizeForNft(rule.RemotePort)
@@ -297,12 +369,12 @@ func generateNftConfLocked() error {
 
 		if isIPv6(rule.RemoteAddr) {
 			buf.WriteString(fmt.Sprintf("        # Rule %s%s\n", rule.ID, noteComment))
-			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat ip6 to [%s]:%s\n", lport, addr, rport))
-			buf.WriteString(fmt.Sprintf("        udp dport %s dnat ip6 to [%s]:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        tcp dport %s counter dnat ip6 to [%s]:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        udp dport %s counter dnat ip6 to [%s]:%s\n", lport, addr, rport))
 		} else {
 			buf.WriteString(fmt.Sprintf("        # Rule %s%s\n", rule.ID, noteComment))
-			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat ip to %s:%s\n", lport, addr, rport))
-			buf.WriteString(fmt.Sprintf("        udp dport %s dnat ip to %s:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        tcp dport %s counter dnat ip to %s:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        udp dport %s counter dnat ip to %s:%s\n", lport, addr, rport))
 		}
 		buf.WriteString("\n")
 	}
@@ -367,6 +439,97 @@ func verifyPassword(inputPassword string) bool {
 		return panelConfig.Auth.Password == inputPassword
 	}
 	return false
+}
+
+// --- 流量提取与主控拉取 ---
+
+func parseNftCounters(out []byte) map[string]uint64 {
+	counterMap := make(map[string]uint64)
+	var data map[string]interface{}
+	if err := json.Unmarshal(out, &data); err != nil {
+		return counterMap
+	}
+	nftables, ok := data["nftables"].([]interface{})
+	if !ok {
+		return counterMap
+	}
+	for _, item := range nftables {
+		obj, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		ruleObj, ok := obj["rule"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		exprs, ok := ruleObj["expr"].([]interface{})
+		if !ok {
+			continue
+		}
+		
+		var localPort string
+		var countBytes uint64
+
+		for _, expr := range exprs {
+			e, ok := expr.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if match, ok := e["match"].(map[string]interface{}); ok {
+				if right, ok := match["right"].(float64); ok {
+					localPort = fmt.Sprintf("%.0f", right)
+				} else if rightStr, ok := match["right"].(string); ok {
+					localPort = rightStr
+				}
+			}
+			if payload, ok := e["payload"].(map[string]interface{}); ok {
+				if right, ok := payload["right"].(float64); ok {
+					localPort = fmt.Sprintf("%.0f", right)
+				} else if rightStr, ok := payload["right"].(string); ok {
+					localPort = rightStr
+				}
+			}
+			if counter, ok := e["counter"].(map[string]interface{}); ok {
+				if bytes, ok := counter["bytes"].(float64); ok {
+					countBytes = uint64(bytes)
+				}
+			}
+		}
+		if localPort != "" && countBytes > 0 {
+			counterMap[localPort] += countBytes
+		}
+	}
+	return counterMap
+}
+
+func fetchNodeMetrics(n NodeConf) NodeSnapshot {
+	snap := NodeSnapshot{
+		Name:     n.Name,
+		URL:      n.URL,
+		Hostname: n.URL,
+		Online:   false,
+		LastSeen: time.Now(),
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("GET", n.URL+"/api/metrics", nil)
+	if err != nil {
+		return snap
+	}
+	req.Header.Set("Authorization", "Bearer "+n.Token)
+	resp, err := client.Do(req)
+	if err != nil {
+		return snap
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 200 {
+		if err := json.NewDecoder(resp.Body).Decode(&snap); err == nil {
+			snap.Online = true
+			snap.Name = n.Name
+			snap.URL = n.URL
+			snap.LastSeen = time.Now()
+		}
+	}
+	return snap
 }
 
 // --- 登录限流 ---
@@ -446,6 +609,112 @@ func main() {
 		Path:     "/",
 	})
 	r.Use(sessions.Sessions("nft_session", store))
+
+	// --- 并发轮询控制 ---
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		for range ticker.C {
+			out, err := exec.Command("nft", "-j", "list", "table", "inet", "nft_forward").Output()
+			if err != nil {
+				continue
+			}
+			
+			counterMap := parseNftCounters(out)
+			mu.Lock()
+			changed := false
+			backup := snapshotRules()
+			now := time.Now()
+			currentMonth := now.Format("2006-01")
+			currentDay := now.Day()
+			// 计算当月最后一天：下月1号往前推1天
+			lastDayOfMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Day()
+
+			for i := range rules {
+				if bytes, ok := counterMap[rules[i].LocalPort]; ok {
+					rules[i].UsedBytes = bytes
+				}
+
+				// 账期自动重置：当月未重置过 且 今天已到达重置日（或月末兜底）
+				// 例：ResetDay=31 但2月只有28天 → 在28号（月末最后一天）自动触发
+				if rules[i].ResetDay > 0 && rules[i].LastResetTime != currentMonth {
+					effectiveDay := rules[i].ResetDay
+					if effectiveDay > lastDayOfMonth {
+						effectiveDay = lastDayOfMonth // 短月兜底：月末最后一天触发
+					}
+					if currentDay >= effectiveDay {
+						rules[i].UsedBytes = 0
+						rules[i].Enabled = true
+						rules[i].LastResetTime = currentMonth
+						changed = true
+						log.Printf("规则 %s (端口 %s) 账期重置，流量已清零（重置日:%d，实际触发日:%d）", rules[i].ID, rules[i].LocalPort, rules[i].ResetDay, currentDay)
+					}
+				}
+
+				// 判断封停
+				if rules[i].QuotaGB > 0 && rules[i].Enabled {
+					if float64(rules[i].UsedBytes) > rules[i].QuotaGB*1024*1024*1024 {
+						rules[i].Enabled = false
+						changed = true
+						log.Printf("规则 %s (端口 %s) 流量超额，已封停", rules[i].ID, rules[i].LocalPort)
+					}
+				}
+			}
+			if changed {
+				_ = saveAndApplyLocked(backup)
+			} else {
+				// 没封停也存一次总流量
+				_ = saveRulesLocked()
+			}
+			mu.Unlock()
+		}
+	}()
+
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		for ; true; <-ticker.C {
+			// 动态读取节点列表，运行时增删节点无需重启
+			nodesMu.RLock()
+			nodeList := make([]NodeConf, len(panelConfig.Nodes))
+			copy(nodeList, panelConfig.Nodes)
+			nodesMu.RUnlock()
+
+			if len(nodeList) == 0 {
+				continue
+			}
+
+			var wg sync.WaitGroup
+			snapshots := make([]NodeSnapshot, len(nodeList))
+			for i, node := range nodeList {
+				wg.Add(1)
+				go func(idx int, n NodeConf) {
+					defer wg.Done()
+					snapshots[idx] = fetchNodeMetrics(n)
+				}(i, node)
+			}
+			wg.Wait()
+			nodesMu.Lock()
+			nodesCache = snapshots
+			nodesMu.Unlock()
+		}
+	}()
+
+	// --- 探针拉取 ---
+	r.GET("/api/metrics", func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if panelConfig.Metrics.Token == "" || authHeader != "Bearer "+panelConfig.Metrics.Token {
+			c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
+			return
+		}
+		hostname, _ := os.Hostname()
+		mu.Lock()
+		snapRules := snapshotRules()
+		mu.Unlock()
+		c.JSON(200, gin.H{
+			"hostname":  hostname,
+			"timestamp": time.Now().Unix(),
+			"rules":     snapRules,
+		})
+	})
 
 	staticSubFS, _ := fs.Sub(staticFS, "static")
 	r.StaticFS("/static", http.FS(staticSubFS))
@@ -541,10 +810,12 @@ func main() {
 		// 添加单条规则
 		api.POST("/api/rules", func(c *gin.Context) {
 			var input struct {
-				LocalPort  string `json:"local_port"`
-				RemoteAddr string `json:"remote_addr"`
-				RemotePort string `json:"remote_port"`
-				Note       string `json:"note"`
+				LocalPort  string  `json:"local_port"`
+				RemoteAddr string  `json:"remote_addr"`
+				RemotePort string  `json:"remote_port"`
+				Note       string  `json:"note"`
+				QuotaGB    float64 `json:"quota_gb"`
+				ResetDay   int     `json:"reset_day"`
 			}
 			if err := c.ShouldBindJSON(&input); err != nil {
 				c.JSON(400, gin.H{"error": "无效输入"})
@@ -585,6 +856,9 @@ func main() {
 				RemoteAddr: input.RemoteAddr,
 				RemotePort: input.RemotePort,
 				Note:       input.Note,
+				QuotaGB:    input.QuotaGB,
+				ResetDay:   input.ResetDay,
+				Enabled:    true,
 			}
 			rules = append(rules, newRule)
 
@@ -604,6 +878,7 @@ func main() {
 					RemoteAddr string `json:"remote_addr"`
 					RemotePort string `json:"remote_port"`
 					Note       string `json:"note"`
+					// 此处批量未扩展quota_gb输入，可考虑支持，默认为0
 				} `json:"rules"`
 			}
 			if err := c.ShouldBindJSON(&input); err != nil {
@@ -651,6 +926,7 @@ func main() {
 					RemoteAddr: item.RemoteAddr,
 					RemotePort: item.RemotePort,
 					Note:       item.Note,
+					Enabled:    true,
 				})
 				added++
 			}
@@ -696,6 +972,132 @@ func main() {
 			}
 
 			c.JSON(200, gin.H{"message": "规则已删除"})
+		})
+
+		// 重置用量
+		api.POST("/api/rules/:id/reset", func(c *gin.Context) {
+			id := c.Param("id")
+			mu.Lock()
+			defer mu.Unlock()
+			backup := snapshotRules()
+			found := false
+			for i, r := range rules {
+				if r.ID == id {
+					rules[i].UsedBytes = 0
+					rules[i].Enabled = true
+					found = true
+					break
+				}
+			}
+			if !found {
+				c.JSON(404, gin.H{"error": "规则不存在"})
+				return
+			}
+			if err := saveAndApplyLocked(backup); err != nil {
+				c.JSON(500, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(200, gin.H{"message": "流量已重置并恢复"})
+		})
+
+		// 设置配额
+		api.PUT("/api/rules/:id/quota", func(c *gin.Context) {
+			id := c.Param("id")
+			var input struct {
+				QuotaGB float64 `json:"quota_gb"`
+			}
+			if err := c.ShouldBindJSON(&input); err != nil {
+				c.JSON(400, gin.H{"error": "无效输入"})
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			backup := snapshotRules()
+			found := false
+			for i, r := range rules {
+				if r.ID == id {
+					rules[i].QuotaGB = input.QuotaGB
+					// 如果设置了配额，判断一下是不是可以解封
+					if !rules[i].Enabled && (rules[i].QuotaGB == 0 || float64(rules[i].UsedBytes) <= rules[i].QuotaGB*1024*1024*1024) {
+						rules[i].Enabled = true
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				c.JSON(404, gin.H{"error": "规则不存在"})
+				return
+			}
+			if err := saveAndApplyLocked(backup); err != nil {
+				c.JSON(500, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(200, gin.H{"message": "配额已更新"})
+		})
+
+		// 大盘探针汇总
+		api.GET("/api/nodes/overview", func(c *gin.Context) {
+			nodesMu.RLock()
+			defer nodesMu.RUnlock()
+			c.JSON(200, gin.H{"nodes": nodesCache})
+		})
+
+		// --- 节点管理 CRUD ---
+		api.GET("/api/nodes/manage", func(c *gin.Context) {
+			nodesMu.RLock()
+			defer nodesMu.RUnlock()
+			c.JSON(200, gin.H{"nodes": panelConfig.Nodes})
+		})
+
+		api.POST("/api/nodes/manage", func(c *gin.Context) {
+			var input struct {
+				Name  string `json:"name"`
+				URL   string `json:"url"`
+				Token string `json:"token"`
+			}
+			if err := c.ShouldBindJSON(&input); err != nil {
+				c.JSON(400, gin.H{"error": "无效输入"})
+				return
+			}
+			if input.Name == "" || input.URL == "" || input.Token == "" {
+				c.JSON(400, gin.H{"error": "节点名称、地址和 Token 不能为空"})
+				return
+			}
+			nodesMu.Lock()
+			panelConfig.Nodes = append(panelConfig.Nodes, NodeConf{
+				Name:  input.Name,
+				URL:   input.URL,
+				Token: input.Token,
+			})
+			nodesMu.Unlock()
+			if err := savePanelConfig(); err != nil {
+				c.JSON(500, gin.H{"error": "保存配置失败: " + err.Error()})
+				return
+			}
+			log.Printf("新增监控节点: %s (%s)", input.Name, input.URL)
+			c.JSON(200, gin.H{"message": "节点已添加"})
+		})
+
+		api.DELETE("/api/nodes/manage/:idx", func(c *gin.Context) {
+			idxStr := c.Param("idx")
+			idx := 0
+			fmt.Sscanf(idxStr, "%d", &idx)
+			nodesMu.Lock()
+			if idx < 0 || idx >= len(panelConfig.Nodes) {
+				nodesMu.Unlock()
+				c.JSON(404, gin.H{"error": "节点不存在"})
+				return
+			}
+			removed := panelConfig.Nodes[idx]
+			panelConfig.Nodes = append(panelConfig.Nodes[:idx], panelConfig.Nodes[idx+1:]...)
+			nodesMu.Unlock()
+			if err := savePanelConfig(); err != nil {
+				c.JSON(500, gin.H{"error": "保存配置失败: " + err.Error()})
+				return
+			}
+			log.Printf("删除监控节点: %s (%s)", removed.Name, removed.URL)
+			c.JSON(200, gin.H{"message": "节点已删除"})
 		})
 
 		// 编辑规则（修改目标地址、目标端口、备注，不允许修改本机端口）

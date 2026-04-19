@@ -18,3 +18,12 @@ rules_path = "/root/.nft-forward/rules.json"
 
 [session]
 # secret = ""  # 首次运行时会自动生成随机密钥
+
+[metrics]
+# token = ""   # 留空则自动生成，用于被控端暴露 API 的 Bearer Token
+
+# 主控端填写各被控节点，被控端不需要此段
+# [[nodes]]
+# name  = "东京中转"
+# url   = "https://1.2.3.4:3456"
+# token = "xxx"
