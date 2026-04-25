@@ -937,9 +937,17 @@
                 <label>目标端口</label>
                 <input type="number" id="editRemotePort" placeholder="1-65535" min="1" max="65535">
             </div>
-            <div class="form-group" style="margin-bottom:0">
+            <div class="form-group" style="margin-bottom:14px">
                 <label>备注（可选）</label>
                 <input type="text" id="editRuleNote" placeholder="备注信息">
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+                <label>月配额 GB（0 = 不限额）</label>
+                <input type="number" id="editQuotaGB" placeholder="如: 100" min="0" step="1">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+                <label>重置日（0 = 不自动重置）</label>
+                <input type="number" id="editResetDay" placeholder="每月几号 (1-31)" min="0" max="31" step="1">
             </div>
             <div class="modal-actions">
                 <button class="btn btn-outline" id="editCancelBtn">取消</button>

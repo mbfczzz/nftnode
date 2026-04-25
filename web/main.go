@@ -1100,13 +1100,15 @@ func main() {
 			c.JSON(200, gin.H{"message": "节点已删除"})
 		})
 
-		// 编辑规则（修改目标地址、目标端口、备注，不允许修改本机端口）
+		// 编辑规则（修改目标地址、目标端口、备注、配额、重置日，不允许修改本机端口）
 		api.PUT("/api/rules/:id", func(c *gin.Context) {
 			id := c.Param("id")
 			var input struct {
-				RemoteAddr string `json:"remote_addr"`
-				RemotePort string `json:"remote_port"`
-				Note       string `json:"note"`
+				RemoteAddr string  `json:"remote_addr"`
+				RemotePort string  `json:"remote_port"`
+				Note       string  `json:"note"`
+				QuotaGB    float64 `json:"quota_gb"`
+				ResetDay   int     `json:"reset_day"`
 			}
 			if err := c.ShouldBindJSON(&input); err != nil {
 				c.JSON(400, gin.H{"error": "无效输入"})
@@ -1138,6 +1140,13 @@ func main() {
 					}
 					// 备注允许清空，所以始终更新
 					rules[i].Note = input.Note
+					// 配额和重置日始终更新
+					rules[i].QuotaGB = input.QuotaGB
+					rules[i].ResetDay = input.ResetDay
+					// 如果配额增大或取消限额，自动解封
+					if !rules[i].Enabled && (rules[i].QuotaGB == 0 || float64(rules[i].UsedBytes) <= rules[i].QuotaGB*1024*1024*1024) {
+						rules[i].Enabled = true
+					}
 					found = true
 					break
 				}
