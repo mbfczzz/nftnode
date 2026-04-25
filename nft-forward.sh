@@ -7,7 +7,7 @@
 
 # --- 基础配置 ---
 sh_ver="1.0.0"
-panel_ver="v1.2"
+panel_ver="v1.3"
 
 # GitHub 仓库（修改为你的用户名/仓库名）
 GITHUB_REPO="wsuming97/nftnode"
