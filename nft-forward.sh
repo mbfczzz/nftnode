@@ -126,6 +126,25 @@ net.ipv6.conf.all.forwarding=1
 SYSEOF
     sysctl --system >/dev/null 2>&1
 
+    # --- Docker 兼容：修复 iptables FORWARD DROP 导致中转不通 ---
+    # Docker 会将 iptables FORWARD 链默认策略设为 DROP，导致 nftables DNAT 的转发流量被拦截
+    # 这里检测到 Docker 的 DROP 策略后，自动添加放行规则，让中转与 Docker 共存
+    if command -v iptables &>/dev/null; then
+        local fw_policy
+        fw_policy=$(iptables -L FORWARD -n 2>/dev/null | head -1 | grep -oP 'policy \K\w+')
+        if [ "$fw_policy" = "DROP" ]; then
+            # 检查是否已经添加过（避免重复插入）
+            if ! iptables -C FORWARD -m conntrack --ctstate DNAT -j ACCEPT 2>/dev/null; then
+                iptables -I FORWARD -m conntrack --ctstate DNAT -j ACCEPT
+                echo -e "${YELLOW}检测到 Docker FORWARD DROP 策略，已自动添加 DNAT 放行规则${PLAIN}"
+                # 持久化（如果 netfilter-persistent 已安装）
+                if command -v netfilter-persistent &>/dev/null; then
+                    netfilter-persistent save >/dev/null 2>&1
+                fi
+            fi
+        fi
+    fi
+
     # 启用 nftables
     systemctl enable nftables >/dev/null 2>&1
 }
