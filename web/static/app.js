@@ -146,10 +146,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 trafficHtml = `<div class="traffic-text">${formatBytes(usedBytes)} / 不限</div>`;
             }
 
-            // 状态标签
-            const statusTag = suspended
-                ? '<span class="status-tag suspended">已封停</span>'
-                : '<span class="status-tag active">正常</span>';
+            // 状态标签（三态：正常/不通/已封停）
+            let statusTag;
+            if (suspended) {
+                statusTag = '<span class="status-tag suspended">已封停</span>';
+            } else if (rule.reachable === false) {
+                statusTag = '<span class="status-tag unreachable">不通</span>';
+            } else if (rule.reachable === true) {
+                statusTag = '<span class="status-tag active">正常</span>';
+            } else {
+                statusTag = '<span class="status-tag checking">检测中</span>';
+            }
 
             // 操作按钮（增加重置按钮）
             let actionsHtml = `

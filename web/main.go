@@ -51,6 +51,7 @@ type ForwardRule struct {
 	Enabled       bool    `json:"enabled"`
 	ResetDay      int     `json:"reset_day"`       // 每月几号重置 (1-31)，0 不自动重置
 	LastResetTime string  `json:"last_reset_time"` // 上次重置的月份 "2026-04"
+	Reachable     *bool   `json:"reachable,omitempty"` // 运行时：落地机是否可达（不持久化）
 }
 
 type NodeConf struct {
@@ -502,6 +503,31 @@ func parseNftCounters(out []byte) map[string]uint64 {
 	return counterMap
 }
 
+// checkForwardBlocked 检测 iptables FORWARD 链是否为 DROP 且缺少 DNAT 放行规则
+// 典型场景：Docker 将 FORWARD 策略设为 DROP，导致 nftables DNAT 转发流量被拦截
+func checkForwardBlocked() bool {
+	// 检查 FORWARD 默认策略
+	out, err := exec.Command("iptables", "-L", "FORWARD", "-n").Output()
+	if err != nil {
+		return false // iptables 不可用，不阻断
+	}
+	lines := strings.Split(string(out), "\n")
+	if len(lines) == 0 {
+		return false
+	}
+	// 首行格式: "Chain FORWARD (policy DROP)"
+	if !strings.Contains(lines[0], "policy DROP") {
+		return false // 策略不是 DROP，不阻断
+	}
+	// 策略是 DROP，检查是否有 DNAT 放行规则
+	checkOut, err := exec.Command("iptables", "-C", "FORWARD", "-m", "conntrack", "--ctstate", "DNAT", "-j", "ACCEPT").CombinedOutput()
+	_ = checkOut
+	if err == nil {
+		return false // 有放行规则，不阻断
+	}
+	return true // FORWARD=DROP 且无 DNAT 放行 → 转发被阻断
+}
+
 func fetchNodeMetrics(n NodeConf) NodeSnapshot {
 	snap := NodeSnapshot{
 		Name:     n.Name,
@@ -618,7 +644,50 @@ func main() {
 			if err != nil {
 				continue
 			}
-			
+
+			// 检测 iptables FORWARD DROP（Docker 冲突）
+			forwardBlocked := checkForwardBlocked()
+
+			// 并发拨测所有落地机连通性（每条规则一个 goroutine，3 秒超时）
+			// 先拷贝需要拨测的信息，避免长时间持锁
+			mu.Lock()
+			type probeTarget struct {
+				addr string
+				port string
+			}
+			targets := make([]probeTarget, len(rules))
+			for i, rule := range rules {
+				targets[i] = probeTarget{rule.RemoteAddr, rule.RemotePort}
+			}
+			mu.Unlock()
+
+			type probeResult struct {
+				idx       int
+				reachable bool
+			}
+			results := make(chan probeResult, len(targets))
+			for i, t := range targets {
+				go func(idx int, addr, port string) {
+					// 移除 IPv6 方括号
+					cleanAddr := strings.Trim(addr, "[]")
+					target := net.JoinHostPort(cleanAddr, port)
+					conn, err := net.DialTimeout("tcp", target, 3*time.Second)
+					if err == nil {
+						conn.Close()
+						results <- probeResult{idx, true}
+					} else {
+						results <- probeResult{idx, false}
+					}
+				}(i, t.addr, t.port)
+			}
+
+			// 收集拨测结果
+			reachMap := make(map[int]bool)
+			for j := 0; j < len(targets); j++ {
+				r := <-results
+				reachMap[r.idx] = r.reachable
+			}
+
 			counterMap := parseNftCounters(out)
 			mu.Lock()
 			changed := false
@@ -632,6 +701,12 @@ func main() {
 			for i := range rules {
 				if bytes, ok := counterMap[rules[i].LocalPort]; ok {
 					rules[i].UsedBytes = bytes
+				}
+
+				// 更新连通性状态：落地可达 且 FORWARD 链未被阻断
+				if reachable, ok := reachMap[i]; ok {
+					r := reachable && !forwardBlocked
+					rules[i].Reachable = &r
 				}
 
 				// 账期自动重置：当月未重置过 且 今天已到达重置日（或月末兜底）
