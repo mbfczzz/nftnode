@@ -601,6 +601,7 @@ panel_management() {
         echo "  2. 启动面板"
         echo "  3. 停止面板"
         echo "  4. 卸载面板"
+        echo "  5. 更新面板"
         echo "  0. 返回上级"
         read -p "选择: " pc
         case $pc in
@@ -608,6 +609,7 @@ panel_management() {
             2) systemctl start nft-panel && echo "面板已启动" || echo "启动失败" ;;
             3) systemctl stop nft-panel && echo "面板已停止" ;;
             4) uninstall_panel ;;
+            5) update_panel ;;
             0) break ;;
             *) echo "无效选择" ;;
         esac
@@ -692,6 +694,49 @@ uninstall_panel() {
     systemctl daemon-reload
     rm -rf "$PANEL_DIR"
     echo -e "${GREEN}面板已卸载${PLAIN}"
+}
+
+# 更新面板：只替换二进制，保留 config.toml 和 rules.json
+update_panel() {
+    if [ ! -f "$PANEL_BIN" ]; then
+        echo -e "${RED}面板未安装，请先安装${PLAIN}"
+        return
+    fi
+
+    local arch=$(uname -m)
+    local p_file=""
+    case "$arch" in
+        x86_64) p_file="nft-panel-linux-amd64.tar.gz" ;;
+        aarch64|arm64) p_file="nft-panel-linux-arm64.tar.gz" ;;
+        *) echo "不支持架构: $arch"; return ;;
+    esac
+
+    local url="https://github.com/${GITHUB_REPO}/releases/download/${panel_ver}/${p_file}"
+    echo -e "${YELLOW}下载 ${panel_ver}: ${url}${PLAIN}"
+
+    if wget -O "/tmp/$p_file" "$url" 2>/dev/null || curl -L -o "/tmp/$p_file" "$url" 2>/dev/null; then
+        echo -e "${YELLOW}停止面板...${PLAIN}"
+        systemctl stop nft-panel 2>/dev/null
+
+        # 备份旧二进制
+        cp "$PANEL_BIN" "${PANEL_BIN}.bak" 2>/dev/null
+
+        # 替换二进制（config.toml 不受影响）
+        tar -xzf "/tmp/$p_file" -C "$PANEL_DIR" && chmod +x "$PANEL_BIN" && rm -f "/tmp/$p_file"
+
+        systemctl start nft-panel
+        if systemctl is-active --quiet nft-panel; then
+            rm -f "${PANEL_BIN}.bak"
+            echo -e "${GREEN}面板已更新到 ${panel_ver} 并启动成功！${PLAIN}"
+        else
+            echo -e "${RED}新版启动失败，正在回滚...${PLAIN}"
+            mv "${PANEL_BIN}.bak" "$PANEL_BIN" 2>/dev/null
+            systemctl start nft-panel
+            echo -e "${YELLOW}已回滚到旧版本${PLAIN}"
+        fi
+    else
+        echo -e "${RED}下载失败，请检查网络${PLAIN}"
+    fi
 }
 
 # --- 脚本更新 ---
