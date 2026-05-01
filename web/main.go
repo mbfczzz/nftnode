@@ -386,7 +386,7 @@ func generateNftConfLocked() error {
 	buf.WriteString("    }\n\n")
 
 	// forward 链 — 流量统计（filter 类型可统计所有包，NAT 链只统计首包）
-	// 使用 ct original proto-dst 匹配原始目标端口（DNAT 前的本机端口）
+	// 用远端 IP+端口匹配（最大兼容性），comment 标记本机端口供解析器提取
 	buf.WriteString("    chain forward {\n")
 	buf.WriteString("        type filter hook forward priority 0; policy accept;\n\n")
 	for _, rule := range rules {
@@ -394,7 +394,18 @@ func generateNftConfLocked() error {
 			continue
 		}
 		lport := sanitizeForNft(rule.LocalPort)
-		buf.WriteString(fmt.Sprintf("        ct status dnat ct original proto-dst %s counter\n", lport))
+		rport := sanitizeForNft(rule.RemotePort)
+		addr := sanitizeForNft(strings.Trim(rule.RemoteAddr, "[]"))
+		ipFamily := "ip"
+		if isIPv6(rule.RemoteAddr) {
+			ipFamily = "ip6"
+		}
+		// 去程：客户端 → 远端（匹配目标地址+端口）
+		buf.WriteString(fmt.Sprintf("        %s daddr %s tcp dport %s counter comment \"fwd_%s\"\n", ipFamily, addr, rport, lport))
+		buf.WriteString(fmt.Sprintf("        %s daddr %s udp dport %s counter comment \"fwd_%s\"\n", ipFamily, addr, rport, lport))
+		// 回程：远端 → 客户端（匹配源地址+端口）
+		buf.WriteString(fmt.Sprintf("        %s saddr %s tcp sport %s counter comment \"fwd_%s\"\n", ipFamily, addr, rport, lport))
+		buf.WriteString(fmt.Sprintf("        %s saddr %s udp sport %s counter comment \"fwd_%s\"\n", ipFamily, addr, rport, lport))
 	}
 	buf.WriteString("    }\n\n")
 
@@ -480,29 +491,28 @@ func parseNftCounters(out []byte) map[string]uint64 {
 			continue
 		}
 		// 只解析 forward 链的 counter（流量统计）
-		// NAT 链的 counter 只统计首包，不反映实际流量
 		chain, _ := ruleObj["chain"].(string)
 		if chain != "forward" {
 			continue
 		}
+
+		// 从 comment 字段提取本机端口（格式: "fwd_12142"）
+		comment, _ := ruleObj["comment"].(string)
+		if !strings.HasPrefix(comment, "fwd_") {
+			continue
+		}
+		localPort := strings.TrimPrefix(comment, "fwd_")
+
 		exprs, ok := ruleObj["expr"].([]interface{})
 		if !ok {
 			continue
 		}
 
-		var localPort string
 		var countBytes uint64
-
 		for _, expr := range exprs {
 			e, ok := expr.(map[string]interface{})
 			if !ok {
 				continue
-			}
-			// 从 match 表达式中提取端口号（只接受数值型，跳过 "dnat" 等字符串）
-			if match, ok := e["match"].(map[string]interface{}); ok {
-				if right, ok := match["right"].(float64); ok {
-					localPort = fmt.Sprintf("%.0f", right)
-				}
 			}
 			if counter, ok := e["counter"].(map[string]interface{}); ok {
 				if bytes, ok := counter["bytes"].(float64); ok {
@@ -510,9 +520,7 @@ func parseNftCounters(out []byte) map[string]uint64 {
 				}
 			}
 		}
-		if localPort != "" {
-			counterMap[localPort] += countBytes
-		}
+		counterMap[localPort] += countBytes
 	}
 	return counterMap
 }
