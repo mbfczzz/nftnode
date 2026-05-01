@@ -107,6 +107,9 @@ var (
 	nodesMu    sync.RWMutex
 	nodesCache []NodeSnapshot
 
+	// 流量统计：记录上次 nft counter 读数，用于计算增量
+	lastCounterSnap = make(map[string]uint64)
+
 	// 登录限流：防暴力破解
 	loginMu        sync.Mutex
 	loginAttempts  = make(map[string]int)
@@ -467,7 +470,7 @@ func parseNftCounters(out []byte) map[string]uint64 {
 		if !ok {
 			continue
 		}
-		
+
 		var localPort string
 		var countBytes uint64
 
@@ -476,17 +479,11 @@ func parseNftCounters(out []byte) map[string]uint64 {
 			if !ok {
 				continue
 			}
+			// 只从 match 表达式中提取端口号（dport 匹配）
 			if match, ok := e["match"].(map[string]interface{}); ok {
 				if right, ok := match["right"].(float64); ok {
 					localPort = fmt.Sprintf("%.0f", right)
 				} else if rightStr, ok := match["right"].(string); ok {
-					localPort = rightStr
-				}
-			}
-			if payload, ok := e["payload"].(map[string]interface{}); ok {
-				if right, ok := payload["right"].(float64); ok {
-					localPort = fmt.Sprintf("%.0f", right)
-				} else if rightStr, ok := payload["right"].(string); ok {
 					localPort = rightStr
 				}
 			}
@@ -496,7 +493,7 @@ func parseNftCounters(out []byte) map[string]uint64 {
 				}
 			}
 		}
-		if localPort != "" && countBytes > 0 {
+		if localPort != "" {
 			counterMap[localPort] += countBytes
 		}
 	}
@@ -706,8 +703,17 @@ func main() {
 			lastDayOfMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Day()
 
 			for i := range rules {
-				if bytes, ok := counterMap[rules[i].LocalPort]; ok {
-					rules[i].UsedBytes = bytes
+				// 流量统计：增量累加，不直接覆盖
+				// nft counter 在 delete table 后会清零，所以用“本次读数 - 上次读数”算增量
+				if currentCounter, ok := counterMap[rules[i].LocalPort]; ok {
+					prevCounter := lastCounterSnap[rules[i].LocalPort]
+					if currentCounter >= prevCounter {
+						// 正常增长
+						rules[i].UsedBytes += currentCounter - prevCounter
+					} else {
+						// counter 被重置了（delete table 或重启 nftables），直接加上新值
+						rules[i].UsedBytes += currentCounter
+					}
 				}
 
 				// 更新连通性状态：落地可达 且 FORWARD 链未被阻断
@@ -747,6 +753,8 @@ func main() {
 				// 没封停也存一次总流量
 				_ = saveRulesLocked()
 			}
+			// 更新 counter 快照，供下一轮增量计算
+			lastCounterSnap = counterMap
 			mu.Unlock()
 		}
 	}()
