@@ -645,6 +645,12 @@ func main() {
 	if err := LoadRules(); err != nil {
 		log.Fatalf("无法加载转发规则: %v", err)
 	}
+	// 启动时自动重新生成并应用 nftables 配置（确保 forward 统计链等新功能生效）
+	if err := applyNftRulesLocked(); err != nil {
+		log.Printf("启动时应用规则失败（可能首次安装未配置）: %v", err)
+	} else {
+		log.Printf("启动时已重新应用 %d 条规则", len(rules))
+	}
 	mu.Unlock()
 
 	gin.SetMode(gin.ReleaseMode)
