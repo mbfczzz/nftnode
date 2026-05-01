@@ -327,11 +327,17 @@ func LoadRules() error {
 
 // 调用方必须持有 mu 锁
 func saveRulesLocked() error {
-	data, err := json.MarshalIndent(rules, "", "  ")
+	// 落盘前复制并清空运行时字段 Reachable，避免重启后残留旧拨测状态
+	cp := make([]ForwardRule, len(rules))
+	copy(cp, rules)
+	for i := range cp {
+		cp[i].Reachable = nil
+	}
+	data, err := json.MarshalIndent(cp, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(panelConfig.Nftables.RulesPath, data, 0644)
+	return os.WriteFile(panelConfig.Nftables.RulesPath, data, 0600)
 }
 
 // --- nftables 配置生成 ---
@@ -373,12 +379,12 @@ func generateNftConfLocked() error {
 
 		if isIPv6(rule.RemoteAddr) {
 			buf.WriteString(fmt.Sprintf("        # Rule %s%s\n", rule.ID, noteComment))
-			buf.WriteString(fmt.Sprintf("        tcp dport %s counter dnat ip6 to [%s]:%s\n", lport, addr, rport))
-			buf.WriteString(fmt.Sprintf("        udp dport %s counter dnat ip6 to [%s]:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat ip6 to [%s]:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        udp dport %s dnat ip6 to [%s]:%s\n", lport, addr, rport))
 		} else {
 			buf.WriteString(fmt.Sprintf("        # Rule %s%s\n", rule.ID, noteComment))
-			buf.WriteString(fmt.Sprintf("        tcp dport %s counter dnat ip to %s:%s\n", lport, addr, rport))
-			buf.WriteString(fmt.Sprintf("        udp dport %s counter dnat ip to %s:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat ip to %s:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        udp dport %s dnat ip to %s:%s\n", lport, addr, rport))
 		}
 		buf.WriteString("\n")
 	}
@@ -685,42 +691,44 @@ func main() {
 
 			// 并发拨测所有落地机连通性（每条规则一个 goroutine，3 秒超时）
 			// 先拷贝需要拨测的信息，避免长时间持锁
+			// 用 rule.ID 作为索引键，避免拨测期间增删规则导致下标错位
 			mu.Lock()
 			type probeTarget struct {
+				id   string
 				addr string
 				port string
 			}
 			targets := make([]probeTarget, len(rules))
 			for i, rule := range rules {
-				targets[i] = probeTarget{rule.RemoteAddr, rule.RemotePort}
+				targets[i] = probeTarget{rule.ID, rule.RemoteAddr, rule.RemotePort}
 			}
 			mu.Unlock()
 
 			type probeResult struct {
-				idx       int
+				id        string
 				reachable bool
 			}
 			results := make(chan probeResult, len(targets))
-			for i, t := range targets {
-				go func(idx int, addr, port string) {
+			for _, t := range targets {
+				go func(id, addr, port string) {
 					// 移除 IPv6 方括号
 					cleanAddr := strings.Trim(addr, "[]")
 					target := net.JoinHostPort(cleanAddr, port)
 					conn, err := net.DialTimeout("tcp", target, 3*time.Second)
 					if err == nil {
 						conn.Close()
-						results <- probeResult{idx, true}
+						results <- probeResult{id, true}
 					} else {
-						results <- probeResult{idx, false}
+						results <- probeResult{id, false}
 					}
-				}(i, t.addr, t.port)
+				}(t.id, t.addr, t.port)
 			}
 
-			// 收集拨测结果
-			reachMap := make(map[int]bool)
+			// 收集拨测结果（按规则 ID 索引）
+			reachMap := make(map[string]bool)
 			for j := 0; j < len(targets); j++ {
 				r := <-results
-				reachMap[r.idx] = r.reachable
+				reachMap[r.id] = r.reachable
 			}
 
 			counterMap := parseNftCounters(out)
@@ -748,7 +756,8 @@ func main() {
 				}
 
 				// 更新连通性状态：落地可达 且 FORWARD 链未被阻断
-				if reachable, ok := reachMap[i]; ok {
+				// 按规则 ID 匹配，避免拨测期间增删规则导致索引错位
+				if reachable, ok := reachMap[rules[i].ID]; ok {
 					r := reachable && !forwardBlocked
 					rules[i].Reachable = &r
 				}
@@ -1202,8 +1211,11 @@ func main() {
 
 		api.DELETE("/api/nodes/manage/:idx", func(c *gin.Context) {
 			idxStr := c.Param("idx")
-			idx := 0
-			fmt.Sscanf(idxStr, "%d", &idx)
+			idx, err := strconv.Atoi(idxStr)
+			if err != nil {
+				c.JSON(400, gin.H{"error": "节点索引无效"})
+				return
+			}
 			nodesMu.Lock()
 			if idx < 0 || idx >= len(panelConfig.Nodes) {
 				nodesMu.Unlock()
