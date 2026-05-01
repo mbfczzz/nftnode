@@ -160,7 +160,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 操作按钮（增加重置按钮）
             let actionsHtml = `
-                <button class="btn btn-outline btn-sm" data-action="edit" data-id="${rule.id}" data-addr="${addr}" data-port="${rule.remote_port}" data-note="${rule.note || ''}" data-quota="${quotaGB}" data-resetday="${resetDay}">编辑</button>
+                <button class="btn btn-outline btn-sm" data-action="edit" data-id="${rule.id}" data-localport="${rule.local_port}" data-addr="${addr}" data-port="${rule.remote_port}" data-note="${rule.note || ''}" data-quota="${quotaGB}" data-resetday="${resetDay}">编辑</button>
                 <button class="btn btn-danger btn-sm" data-action="delete" data-id="${rule.id}">删除</button>`;
             if (quotaGB > 0) {
                 actionsHtml += `<button class="btn btn-warning btn-sm" data-action="reset" data-id="${rule.id}" title="清零流量并恢复转发">重置</button>`;
@@ -217,6 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (action === 'edit') {
             // 打开编辑模态框，填充当前值
             document.getElementById('editRuleId').value = id;
+            document.getElementById('editLocalPort').value = btn.dataset.localport || '';
             document.getElementById('editRemoteAddr').value = btn.dataset.addr || '';
             document.getElementById('editRemotePort').value = btn.dataset.port || '';
             document.getElementById('editRuleNote').value = btn.dataset.note || '';
@@ -253,14 +254,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 编辑模态框：保存 ---
     document.getElementById('editSaveBtn').addEventListener('click', async () => {
         const id = document.getElementById('editRuleId').value;
+        const localPort = document.getElementById('editLocalPort').value.trim();
         const remoteAddr = document.getElementById('editRemoteAddr').value.trim();
         const remotePort = document.getElementById('editRemotePort').value.trim();
         const note = document.getElementById('editRuleNote').value.trim();
         const quotaGB = parseFloat(document.getElementById('editQuotaGB').value) || 0;
         const resetDay = parseInt(document.getElementById('editResetDay').value) || 0;
 
-        if (!remoteAddr || !remotePort) {
-            showToast('目标地址和端口不能为空', 'error');
+        if (!localPort || !remoteAddr || !remotePort) {
+            showToast('本机端口、目标地址和端口不能为空', 'error');
             return;
         }
 
@@ -269,6 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    local_port: localPort,
                     remote_addr: remoteAddr,
                     remote_port: remotePort,
                     note: note,

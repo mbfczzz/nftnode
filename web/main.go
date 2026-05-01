@@ -1175,10 +1175,11 @@ func main() {
 			c.JSON(200, gin.H{"message": "节点已删除"})
 		})
 
-		// 编辑规则（修改目标地址、目标端口、备注、配额、重置日，不允许修改本机端口）
+		// 编辑规则（修改本机端口、目标地址、目标端口、备注、配额、重置日）
 		api.PUT("/api/rules/:id", func(c *gin.Context) {
 			id := c.Param("id")
 			var input struct {
+				LocalPort  string  `json:"local_port"`
 				RemoteAddr string  `json:"remote_addr"`
 				RemotePort string  `json:"remote_port"`
 				Note       string  `json:"note"`
@@ -1191,6 +1192,10 @@ func main() {
 			}
 
 			// 校验字段（允许部分更新：只校验非空字段）
+			if input.LocalPort != "" && !validatePort(input.LocalPort) {
+				c.JSON(400, gin.H{"error": "本机端口无效 (1-65535)"})
+				return
+			}
 			if input.RemotePort != "" && !validatePort(input.RemotePort) {
 				c.JSON(400, gin.H{"error": "目标端口无效 (1-65535)"})
 				return
@@ -1203,10 +1208,23 @@ func main() {
 			mu.Lock()
 			defer mu.Unlock()
 
+			// 如果要修改本机端口，需要检查是否与其他规则冲突
+			if input.LocalPort != "" {
+				for _, r := range rules {
+					if r.ID != id && r.LocalPort == input.LocalPort {
+						c.JSON(409, gin.H{"error": fmt.Sprintf("本机端口 %s 已被其他规则占用", input.LocalPort)})
+						return
+					}
+				}
+			}
+
 			backup := snapshotRules()
 			found := false
 			for i, r := range rules {
 				if r.ID == id {
+					if input.LocalPort != "" {
+						rules[i].LocalPort = input.LocalPort
+					}
 					if input.RemoteAddr != "" {
 						rules[i].RemoteAddr = input.RemoteAddr
 					}

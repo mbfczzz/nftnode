@@ -932,6 +932,10 @@
             </h3>
             <input type="hidden" id="editRuleId">
             <div class="form-group" style="margin-bottom:14px">
+                <label>本机端口（中转端口）</label>
+                <input type="number" id="editLocalPort" placeholder="1-65535" min="1" max="65535">
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
                 <label>目标地址</label>
                 <input type="text" id="editRemoteAddr" placeholder="IPv4/IPv6/域名">
             </div>
