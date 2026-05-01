@@ -385,6 +385,19 @@ func generateNftConfLocked() error {
 
 	buf.WriteString("    }\n\n")
 
+	// forward 链 — 流量统计（filter 类型可统计所有包，NAT 链只统计首包）
+	// 使用 ct original proto-dst 匹配原始目标端口（DNAT 前的本机端口）
+	buf.WriteString("    chain forward {\n")
+	buf.WriteString("        type filter hook forward priority 0; policy accept;\n\n")
+	for _, rule := range rules {
+		if !rule.Enabled {
+			continue
+		}
+		lport := sanitizeForNft(rule.LocalPort)
+		buf.WriteString(fmt.Sprintf("        ct status dnat ct original proto-dst %s counter\n", lport))
+	}
+	buf.WriteString("    }\n\n")
+
 	// postrouting 链 — 仅对 DNAT 过的包做 masquerade
 	buf.WriteString("    chain postrouting {\n")
 	buf.WriteString("        type nat hook postrouting priority 100; policy accept;\n")
@@ -466,6 +479,12 @@ func parseNftCounters(out []byte) map[string]uint64 {
 		if !ok {
 			continue
 		}
+		// 只解析 forward 链的 counter（流量统计）
+		// NAT 链的 counter 只统计首包，不反映实际流量
+		chain, _ := ruleObj["chain"].(string)
+		if chain != "forward" {
+			continue
+		}
 		exprs, ok := ruleObj["expr"].([]interface{})
 		if !ok {
 			continue
@@ -479,12 +498,10 @@ func parseNftCounters(out []byte) map[string]uint64 {
 			if !ok {
 				continue
 			}
-			// 只从 match 表达式中提取端口号（dport 匹配）
+			// 从 match 表达式中提取端口号（只接受数值型，跳过 "dnat" 等字符串）
 			if match, ok := e["match"].(map[string]interface{}); ok {
 				if right, ok := match["right"].(float64); ok {
 					localPort = fmt.Sprintf("%.0f", right)
-				} else if rightStr, ok := match["right"].(string); ok {
-					localPort = rightStr
 				}
 			}
 			if counter, ok := e["counter"].(map[string]interface{}); ok {
