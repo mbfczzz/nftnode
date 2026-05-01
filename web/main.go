@@ -639,7 +639,14 @@ func main() {
 	// --- 并发轮询控制 ---
 	go func() {
 		ticker := time.NewTicker(60 * time.Second)
-		for range ticker.C {
+		// 启动后立即执行第一次检测，不等 60 秒
+		firstRun := make(chan struct{}, 1)
+		firstRun <- struct{}{}
+		for {
+			select {
+			case <-firstRun:
+			case <-ticker.C:
+			}
 			out, err := exec.Command("nft", "-j", "list", "table", "inet", "nft_forward").Output()
 			if err != nil {
 				continue
