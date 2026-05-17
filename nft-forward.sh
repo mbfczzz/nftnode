@@ -112,12 +112,15 @@ init_env() {
 
     # 开启内核转发
     # 先处理 /etc/sysctl.conf 中可能存在的冲突配置（某些 VPS 镜像预设 ip_forward=0）
+    # 只有我们真正改过时才写 state 标记，卸载时根据标记决定是否还原，避免破坏 Docker 等其他服务
     if grep -qE '^\s*net\.ipv4\.ip_forward\s*=\s*0' /etc/sysctl.conf 2>/dev/null; then
         sed -i 's/^\s*net\.ipv4\.ip_forward\s*=\s*0/net.ipv4.ip_forward=1/' /etc/sysctl.conf
+        touch "$NFT_DIR/.state-sysctl-ipv4"
         echo -e "${YELLOW}已修正 /etc/sysctl.conf 中的 ip_forward=0${PLAIN}"
     fi
     if grep -qE '^\s*net\.ipv6\.conf\.all\.forwarding\s*=\s*0' /etc/sysctl.conf 2>/dev/null; then
         sed -i 's/^\s*net\.ipv6\.conf\.all\.forwarding\s*=\s*0/net.ipv6.conf.all.forwarding=1/' /etc/sysctl.conf
+        touch "$NFT_DIR/.state-sysctl-ipv6"
     fi
     # 独立 sysctl 文件作为兜底
     cat > /etc/sysctl.d/99-nft-forward.conf <<SYSEOF
@@ -136,6 +139,7 @@ SYSEOF
             # 检查是否已经添加过（避免重复插入）
             if ! iptables -C FORWARD -m conntrack --ctstate DNAT -j ACCEPT 2>/dev/null; then
                 iptables -I FORWARD -m conntrack --ctstate DNAT -j ACCEPT
+                touch "$NFT_DIR/.state-iptables-dnat"
                 echo -e "${YELLOW}检测到 Docker FORWARD DROP 策略，已自动添加 DNAT 放行规则${PLAIN}"
                 # 持久化（如果 netfilter-persistent 已安装）
                 if command -v netfilter-persistent &>/dev/null; then
@@ -145,8 +149,11 @@ SYSEOF
         fi
     fi
 
-    # 启用 nftables
-    systemctl enable nftables >/dev/null 2>&1
+    # 启用 nftables（仅在原本未启用时写 state，卸载时才会 disable）
+    if ! systemctl is-enabled nftables &>/dev/null; then
+        systemctl enable nftables >/dev/null 2>&1
+        touch "$NFT_DIR/.state-systemd-enabled"
+    fi
 }
 
 # --- nftables 配置生成 ---
@@ -173,17 +180,26 @@ HEADER
         local note_comment=""
         [ -n "$rnote" ] && note_comment=" ($rnote)"
 
+        # 内核级 comment：写入 nftables 规则元数据，nft list ruleset 时可直接看到规则用途
+        local nft_comment="nat_${lport}"
+        if [ -n "$rnote" ]; then
+            # 只保留安全字符，截断到 60 字符防止超出 nftables 128 字符上限
+            local safe_note
+            safe_note=$(echo "$rnote" | tr -cd 'a-zA-Z0-9._-' | head -c 60)
+            [ -n "$safe_note" ] && nft_comment="nat_${lport}_${safe_note}"
+        fi
+
         # 判断 IPv4 还是 IPv6
         if is_ipv6 "$raddr"; then
             local clean_addr
             clean_addr=$(echo "$raddr" | tr -d '[]')
             echo "        # Rule: ${rid}${note_comment}" >> "$NFT_CONF"
-            echo "        tcp dport ${lport} dnat ip6 to [${clean_addr}]:${rport}" >> "$NFT_CONF"
-            echo "        udp dport ${lport} dnat ip6 to [${clean_addr}]:${rport}" >> "$NFT_CONF"
+            echo "        tcp dport ${lport} dnat ip6 to [${clean_addr}]:${rport} comment \"${nft_comment}\"" >> "$NFT_CONF"
+            echo "        udp dport ${lport} dnat ip6 to [${clean_addr}]:${rport} comment \"${nft_comment}\"" >> "$NFT_CONF"
         else
             echo "        # Rule: ${rid}${note_comment}" >> "$NFT_CONF"
-            echo "        tcp dport ${lport} dnat ip to ${raddr}:${rport}" >> "$NFT_CONF"
-            echo "        udp dport ${lport} dnat ip to ${raddr}:${rport}" >> "$NFT_CONF"
+            echo "        tcp dport ${lport} dnat ip to ${raddr}:${rport} comment \"${nft_comment}\"" >> "$NFT_CONF"
+            echo "        udp dport ${lport} dnat ip to ${raddr}:${rport} comment \"${nft_comment}\"" >> "$NFT_CONF"
         fi
     done
 
@@ -231,10 +247,10 @@ uninstall_nftables() {
     read -p "确定卸载 nftables 转发配置? [y/N]: " confirm
     [[ "$confirm" != "y" && "$confirm" != "Y" ]] && return
 
-    # 仅删除本项目创建的表
+    # 1. 删除本项目创建的 nftables 表
     nft delete table inet nft_forward 2>/dev/null
 
-    # 备份原有 nftables 配置后再覆盖
+    # 2. 备份原有 nftables 配置后再覆盖
     if [ -f "$NFT_CONF" ]; then
         cp "$NFT_CONF" "${NFT_CONF}.bak.$(date +%Y%m%d%H%M%S)"
         echo -e "${GREEN}已备份原配置: ${NFT_CONF}.bak.*${PLAIN}"
@@ -244,13 +260,47 @@ uninstall_nftables() {
 # nft_forward 表已卸载
 EOF
 
-    # 清理 sysctl 配置
+    # 3. 清理 sysctl 独立配置文件
     rm -f /etc/sysctl.d/99-nft-forward.conf
+
+    # 4. 还原 /etc/sysctl.conf：只还原本项目改过的项（根据 state 标记判断）
+    #    若用户系统原本就 ip_forward=1（如 Docker / WireGuard），安装时未改，state 不存在，卸载也不动
+    if [ -f "$NFT_DIR/.state-sysctl-ipv4" ]; then
+        sed -i 's/^net\.ipv4\.ip_forward\s*=\s*1/net.ipv4.ip_forward=0/' /etc/sysctl.conf
+        echo -e "${YELLOW}已还原 /etc/sysctl.conf 中的 ip_forward=0${PLAIN}"
+    fi
+    if [ -f "$NFT_DIR/.state-sysctl-ipv6" ]; then
+        sed -i 's/^net\.ipv6\.conf\.all\.forwarding\s*=\s*1/net.ipv6.conf.all.forwarding=0/' /etc/sysctl.conf
+    fi
     sysctl --system >/dev/null 2>&1
 
+    # 5. 移除 iptables DNAT 放行规则：仅当本项目添加过时（避免误删 Docker 等其他工具加的相同规则）
+    if [ -f "$NFT_DIR/.state-iptables-dnat" ] && command -v iptables &>/dev/null; then
+        if iptables -C FORWARD -m conntrack --ctstate DNAT -j ACCEPT 2>/dev/null; then
+            iptables -D FORWARD -m conntrack --ctstate DNAT -j ACCEPT
+            echo -e "${YELLOW}已移除 iptables DNAT 放行规则${PLAIN}"
+            if command -v netfilter-persistent &>/dev/null; then
+                netfilter-persistent save >/dev/null 2>&1
+            fi
+        fi
+    fi
+
+    # 6. 禁用 nftables 服务：仅当本项目 enable 过时（原本就 enabled 的不动）
+    if [ -f "$NFT_DIR/.state-systemd-enabled" ]; then
+        systemctl stop nftables 2>/dev/null
+        systemctl disable nftables 2>/dev/null
+        echo -e "${GREEN}nftables 服务已停止并禁用开机自启${PLAIN}"
+    fi
+
+    # 7. 删除转发规则配置目录
     read -p "删除转发规则配置? [y/N]: " del_conf
-    [[ "$del_conf" == "y" || "$del_conf" == "Y" ]] && rm -rf "$NFT_DIR"
-    echo -e "${GREEN}已卸载转发配置 (其他防火墙规则不受影响)${PLAIN}"
+    if [[ "$del_conf" == "y" || "$del_conf" == "Y" ]]; then
+        rm -rf "$NFT_DIR"
+        # 清理 /root/nft-forward 空壳目录（如果面板也已卸载）
+        [ -d "/root/nft-forward" ] && rmdir /root/nft-forward 2>/dev/null
+    fi
+
+    echo -e "${GREEN}已完全卸载转发配置${PLAIN}"
 }
 
 # --- 代理服务安装管理 ---
@@ -693,6 +743,8 @@ uninstall_panel() {
     rm -f "$PANEL_SERVICE"
     systemctl daemon-reload
     rm -rf "$PANEL_DIR"
+    # 如果 /root/nft-forward 已空（转发配置也已卸载），一并清理
+    [ -d "/root/nft-forward" ] && rmdir /root/nft-forward 2>/dev/null
     echo -e "${GREEN}面板已卸载${PLAIN}"
 }
 

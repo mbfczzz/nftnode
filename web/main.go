@@ -377,14 +377,25 @@ func generateNftConfLocked() error {
 			noteComment = fmt.Sprintf(" (%s)", sanitizeForNft(rule.Note))
 		}
 
+		// 内核级 comment：写入 nftables 规则元数据，nft list ruleset 时可直接看到规则用途
+		// 格式: "nat_端口" 或 "nat_端口_备注"，截断到 80 字符防止超出 nftables 128 字符上限
+		nftComment := fmt.Sprintf("nat_%s", lport)
+		if rule.Note != "" {
+			sanitizedNote := sanitizeForNft(rule.Note)
+			if len(sanitizedNote) > 60 {
+				sanitizedNote = sanitizedNote[:60]
+			}
+			nftComment = fmt.Sprintf("nat_%s_%s", lport, sanitizedNote)
+		}
+
 		if isIPv6(rule.RemoteAddr) {
 			buf.WriteString(fmt.Sprintf("        # Rule %s%s\n", rule.ID, noteComment))
-			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat ip6 to [%s]:%s\n", lport, addr, rport))
-			buf.WriteString(fmt.Sprintf("        udp dport %s dnat ip6 to [%s]:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat ip6 to [%s]:%s comment \"%s\"\n", lport, addr, rport, nftComment))
+			buf.WriteString(fmt.Sprintf("        udp dport %s dnat ip6 to [%s]:%s comment \"%s\"\n", lport, addr, rport, nftComment))
 		} else {
 			buf.WriteString(fmt.Sprintf("        # Rule %s%s\n", rule.ID, noteComment))
-			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat ip to %s:%s\n", lport, addr, rport))
-			buf.WriteString(fmt.Sprintf("        udp dport %s dnat ip to %s:%s\n", lport, addr, rport))
+			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat ip to %s:%s comment \"%s\"\n", lport, addr, rport, nftComment))
+			buf.WriteString(fmt.Sprintf("        udp dport %s dnat ip to %s:%s comment \"%s\"\n", lport, addr, rport, nftComment))
 		}
 		buf.WriteString("\n")
 	}

@@ -6,10 +6,15 @@
 
 - 🚀 **内核级转发** — 使用 nftables NAT，零额外进程，性能极佳
 - 🌐 **IPv4/IPv6 双栈** — 使用 `inet` 表同时支持 IPv4 和 IPv6 转发
-- 🖥️ **可视化面板** — 现代暗色主题 Web 管理界面，单二进制部署（go:embed）
+- 🖥️ **可视化面板** — 现代浅色主题 Web 管理界面，单二进制部署（go:embed）
 - 📦 **批量操作** — 支持批量导入转发规则
-- 🔒 **安全认证** — bcrypt 密码哈希 + 随机 Session Secret + HTTPS 支持
+- 📊 **流量监控** — 基于 nftables counter 的实时流量统计，支持配额限制与账期自动重置
+- 🌍 **中英双语** — 面板 UI 一键切换中文 / English，语言偏好自动记忆
+- 💬 **内核级注释** — DNAT 规则写入 `comment` 元数据，`nft list ruleset` 直接可见规则用途
+- 🔒 **安全认证** — bcrypt 密码哈希 + 随机 Session Secret + 登录限流 + HTTPS 支持
 - 🛡️ **安全隔离** — 仅操作 `inet nft_forward` 表，不影响其他防火墙规则
+- 🧹 **安全卸载** — state 标记文件区分项目配置与系统原有配置，卸载绝不误改 Docker / WireGuard 等服务
+- 🔗 **多节点主控** — 主控端可监控汇总多个被控端节点的流量与转发规则
 
 ## 📋 流量走向
 
@@ -62,7 +67,7 @@ curl -L https://raw.githubusercontent.com/wsuming97/nftnode/main/nft-forward.sh 
 
 ### Web 面板
 
-面板默认运行在 `http://服务器IP:3456`
+面板默认运行在 `http://服务器IP:3456`，右上角可一键切换 **中文 / English**。
 
 配置文件路径：`/root/nft-forward/web/config.toml`
 
@@ -85,6 +90,19 @@ key_file = "./certificate/private.key"
 secret = ""
 ```
 
+### 多节点主控
+
+在 `config.toml` 中配置被控节点：
+
+```toml
+[[nodes]]
+name = "东京中转"
+url = "https://1.2.3.4:3456"
+token = "被控端的 Metrics Token"
+```
+
+主控面板将自动轮询各节点的转发规则与流量数据，统一展示在「节点总览」大盘中。
+
 ## 🔐 安全建议
 
 1. **修改默认密码** — 安装后立即修改面板密码
@@ -95,18 +113,22 @@ secret = ""
 
 ```
 nftables-forward/
-├── nft-forward.sh              # 一键管理脚本
+├── nft-forward.sh              # 一键管理脚本（含安全卸载逻辑）
+├── reality.sh                  # Xray Reality 一键安装
+├── ss-rust.sh                  # Shadowsocks Rust 一键安装
+├── https.sh                    # Caddy HTTPS 代理安装
+├── diagnose.sh                 # 7 步转发诊断工具
 ├── README.md                   # 项目说明
 ├── LICENSE                     # MIT 许可证
 └── web/                        # Web 可视化面板
     ├── config.toml.example     # 面板配置模板（首次运行自动生成 config.toml）
     ├── go.mod                  # Go 依赖
-    ├── main.go                 # Go 后端
+    ├── main.go                 # Go 后端（Gin + 规则管理 + 流量统计 + 节点探针）
     ├── templates/
-    │   ├── index.html          # 管理页面
-    │   └── login.html          # 登录页面
+    │   ├── index.html          # 管理页面（含 i18n 标记）
+    │   └── login.html          # 登录页面（含 i18n 标记）
     └── static/
-        └── app.js              # 前端逻辑
+        └── app.js              # 前端逻辑（含 i18n 翻译系统）
 ```
 
 ## 📝 生成的 nftables 配置
@@ -124,8 +146,8 @@ table inet nft_forward {
     chain prerouting {
         type nat hook prerouting priority -100; policy accept;
         # Rule abc12345 (东京节点)
-        tcp dport 2222 dnat ip to 6.6.6.6:6666
-        udp dport 2222 dnat ip to 6.6.6.6:6666
+        tcp dport 2222 dnat ip to 6.6.6.6:6666 comment "nat_2222_Tokyo"
+        udp dport 2222 dnat ip to 6.6.6.6:6666 comment "nat_2222_Tokyo"
     }
 
     chain postrouting {
@@ -134,6 +156,20 @@ table inet nft_forward {
     }
 }
 ```
+
+> 💡 `comment` 是 nftables 的内核级元数据，执行 `nft list ruleset` 时可直接看到每条规则的用途，即使面板未运行也能快速定位规则。
+
+## 🧹 安全卸载机制
+
+卸载时通过 state 标记文件（`$NFT_DIR/.state-*`）精确识别本项目修改过的配置：
+
+| 标记文件 | 作用 |
+|---|---|
+| `.state-sysctl-ipv4` | 本项目修改了 sysctl.conf 中的 ip_forward |
+| `.state-systemd-enabled` | 本项目执行了 systemctl enable nftables |
+| `.state-iptables-dnat` | 本项目添加了 iptables DNAT 放行规则 |
+
+只有存在对应标记文件时才还原对应配置，**绝不影响 Docker / WireGuard 等其他服务的网络设置**。
 
 ## ⚙️ 系统要求
 

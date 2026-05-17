@@ -3,6 +3,219 @@
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', () => {
+
+    // ============================================================
+    //  i18n 国际化系统 — 中英双语切换
+    // ============================================================
+    const I18N = {
+        zh: {
+            // Header
+            'header.title': 'nftables 转发管理',
+            'header.logout': '退出',
+            // Service
+            'svc.start': '启动', 'svc.stop': '停止', 'svc.restart': '重启',
+            // Buttons
+            'btn.refresh': '刷新', 'btn.cancel': '取消', 'btn.save': '保存',
+            // Overview
+            'overview.title': '节点总览',
+            'overview.node': '节点名', 'overview.online': '在线', 'overview.rules': '规则数',
+            'overview.used': '总已用', 'overview.quota': '总配额', 'overview.lastUpdate': '最后更新',
+            // Nodes
+            'nodes.title': '已部署节点',
+            // Rules
+            'rules.title': '转发规则列表',
+            'rules.localPort': '本机端口', 'rules.ipType': 'IP类型',
+            'rules.targetAddr': '目标地址', 'rules.targetPort': '目标端口',
+            'rules.protocol': '协议', 'rules.traffic': '流量 / 配额',
+            'rules.status': '状态', 'rules.note': '备注', 'rules.actions': '操作',
+            // Pagination
+            'page.prev': '上一页', 'page.next': '下一页',
+            // Add rule
+            'add.title': '添加转发规则',
+            'add.localPort': '本机端口', 'add.targetPort': '目标端口',
+            'add.note': '备注（可选）', 'add.quota': '月配额 GB（可选）',
+            'add.resetDay': '重置日（可选）', 'add.submit': '添加规则',
+            // Batch
+            'batch.title': '批量添加转发规则', 'batch.submit': '批量添加',
+            // Edit modal
+            'edit.title': '编辑转发规则',
+            // Password modal
+            'pwd.title': '修改密码', 'pwd.confirm': '确认修改',
+            // Status / dynamic
+            'status.running': '运行中', 'status.stopped': '已停止', 'status.checking': '检测中...',
+            'status.active': '正常', 'status.suspended': '已封停',
+            'status.unreachable': '不通', 'status.checkingShort': '检测中',
+            'status.exceeded': '已超额',
+            // Toast messages
+            'toast.addOk': '{proto} 规则已添加', 'toast.editOk': '规则已更新',
+            'toast.deleteOk': '规则已删除', 'toast.resetOk': '流量已重置',
+            'toast.batchOk': '成功添加 {n} 条规则', 'toast.batchPartial': '成功添加 {n} 条规则，{f} 条失败',
+            'toast.startOk': '服务已启动', 'toast.stopOk': '服务已停止',
+            'toast.restartOk': '服务已重启',
+            'toast.pwdOk': '密码修改成功',
+            'toast.pwdMismatch': '两次输入的新密码不一致',
+            'toast.pwdShort': '新密码至少 4 个字符',
+            'toast.pwdEmpty': '请填写所有密码字段',
+            'toast.editEmpty': '本机端口、目标地址和端口不能为空',
+            'toast.addEmpty': '请填写所有必填字段',
+            'toast.batchEmpty': '请输入规则',
+            'toast.batchFormat': '格式错误: {line}',
+            'toast.batchNone': '未解析到有效规则',
+            'toast.copied': '连接链接已复制',
+            'toast.nodeAdded': '节点已添加',
+            'toast.nodeDeleted': '节点已删除',
+            'toast.nodeEmpty': '节点名称、地址和 Token 不能为空',
+            'toast.confirmDelete': '确定删除此转发规则？',
+            'toast.confirmReset': '确定清零该端口的已用流量并恢复转发？',
+            'toast.confirmDeleteNode': '确定删除此监控节点？',
+            // Table misc
+            'rules.total': '共 {n} 条',
+            'rules.empty': '暂无转发规则',
+            'rules.fetchFail': '获取规则失败',
+            'rules.edit': '编辑', 'rules.delete': '删除', 'rules.reset': '重置',
+            'page.info': '第 {cur} / {total} 页',
+            'traffic.unlimited': '不限', 'traffic.unlimitedQuota': '不限额',
+            // Status text
+            'status.unknown': '未知',
+            // Nodes
+            'nodes.empty': '暂无已部署节点（可通过脚本菜单安装 Xray Reality 或 Shadowsocks）',
+            'nodes.fetchFail': '获取节点信息失败',
+            'nodes.refreshing': '刷新中...',
+            'nodes.copyHint': '点击复制',
+            'overview.empty': '暂无监控节点',
+            'overview.online': '在线', 'overview.offline': '离线',
+            'overview.refreshing': '刷新中...',
+            'pwd.changing': '修改中...',
+            // IPv4/IPv6 切换
+            'proto.v4Label': '目标 IPv4 地址', 'proto.v4Ph': '如: 6.6.6.6 或 1.2.3.4',
+            'proto.v6Label': '目标 IPv6 地址', 'proto.v6Ph': '如: 2001:db8::1 (自动添加方括号)',
+            // Node detail sub-table
+            'detail.suspended': '封停', 'detail.active': '正常',
+            // Node manage
+            'nodeManage.title': '管理监控节点',
+            'nodeManage.name': '节点名称', 'nodeManage.url': '节点地址',
+            'nodeManage.token': 'Metrics Token', 'nodeManage.add': '添加节点',
+            'nodeManage.empty': '未配置监控节点，在下方添加被控服务器',
+            'nodeManage.fetchFail': '获取节点列表失败',
+        },
+        en: {
+            'header.title': 'nftables Forward Manager',
+            'header.logout': 'Logout',
+            'svc.start': 'Start', 'svc.stop': 'Stop', 'svc.restart': 'Restart',
+            'btn.refresh': 'Refresh', 'btn.cancel': 'Cancel', 'btn.save': 'Save',
+            'overview.title': 'Node Overview',
+            'overview.node': 'Node', 'overview.online': 'Online', 'overview.rules': 'Rules',
+            'overview.used': 'Used', 'overview.quota': 'Quota', 'overview.lastUpdate': 'Last Update',
+            'nodes.title': 'Deployed Nodes',
+            'rules.title': 'Forward Rules',
+            'rules.localPort': 'Local Port', 'rules.ipType': 'IP Type',
+            'rules.targetAddr': 'Target Addr', 'rules.targetPort': 'Target Port',
+            'rules.protocol': 'Protocol', 'rules.traffic': 'Traffic / Quota',
+            'rules.status': 'Status', 'rules.note': 'Note', 'rules.actions': 'Actions',
+            'page.prev': 'Prev', 'page.next': 'Next',
+            'add.title': 'Add Forward Rule',
+            'add.localPort': 'Local Port', 'add.targetPort': 'Target Port',
+            'add.note': 'Note (optional)', 'add.quota': 'Monthly Quota GB (optional)',
+            'add.resetDay': 'Reset Day (optional)', 'add.submit': 'Add Rule',
+            'batch.title': 'Batch Add Rules', 'batch.submit': 'Batch Add',
+            'edit.title': 'Edit Forward Rule',
+            'pwd.title': 'Change Password', 'pwd.confirm': 'Confirm',
+            'status.running': 'Running', 'status.stopped': 'Stopped', 'status.checking': 'Checking...',
+            'status.active': 'Active', 'status.suspended': 'Suspended',
+            'status.unreachable': 'Unreachable', 'status.checkingShort': 'Checking',
+            'status.exceeded': 'Exceeded',
+            'toast.addOk': '{proto} rule added', 'toast.editOk': 'Rule updated',
+            'toast.deleteOk': 'Rule deleted', 'toast.resetOk': 'Traffic reset',
+            'toast.batchOk': '{n} rules added', 'toast.batchPartial': '{n} added, {f} failed',
+            'toast.startOk': 'Service started', 'toast.stopOk': 'Service stopped',
+            'toast.restartOk': 'Service restarted',
+            'toast.pwdOk': 'Password changed',
+            'toast.pwdMismatch': 'New passwords do not match',
+            'toast.pwdShort': 'New password must be at least 4 characters',
+            'toast.pwdEmpty': 'Please fill in all password fields',
+            'toast.editEmpty': 'Local port, target address and port are required',
+            'toast.addEmpty': 'Please fill in all required fields',
+            'toast.batchEmpty': 'Please enter rules',
+            'toast.batchFormat': 'Format error: {line}',
+            'toast.batchNone': 'No valid rules parsed',
+            'toast.copied': 'Link copied',
+            'toast.nodeAdded': 'Node added',
+            'toast.nodeDeleted': 'Node deleted',
+            'toast.nodeEmpty': 'Node name, URL and Token are required',
+            'toast.confirmDelete': 'Delete this forward rule?',
+            'toast.confirmReset': 'Reset traffic and resume forwarding?',
+            'toast.confirmDeleteNode': 'Delete this monitor node?',
+            'rules.total': '{n} rules',
+            'rules.empty': 'No forward rules',
+            'rules.fetchFail': 'Failed to load rules',
+            'rules.edit': 'Edit', 'rules.delete': 'Delete', 'rules.reset': 'Reset',
+            'page.info': 'Page {cur} / {total}',
+            'traffic.unlimited': 'Unlimited', 'traffic.unlimitedQuota': 'Unlimited',
+            'status.unknown': 'Unknown',
+            'nodes.empty': 'No deployed nodes (install Xray Reality or Shadowsocks via script menu)',
+            'nodes.fetchFail': 'Failed to load node info',
+            'nodes.refreshing': 'Refreshing...',
+            'nodes.copyHint': 'Click to copy',
+            'overview.empty': 'No monitoring nodes',
+            'overview.online': 'Online', 'overview.offline': 'Offline',
+            'overview.refreshing': 'Refreshing...',
+            'pwd.changing': 'Saving...',
+            'nodeManage.title': 'Manage Monitor Nodes',
+            'nodeManage.name': 'Node Name', 'nodeManage.url': 'Node URL',
+            'nodeManage.token': 'Metrics Token', 'nodeManage.add': 'Add Node',
+            'nodeManage.empty': 'No monitor nodes configured; add a managed server below',
+            'nodeManage.fetchFail': 'Failed to load node list',
+            'proto.v4Label': 'Target IPv4 Address', 'proto.v4Ph': 'e.g. 6.6.6.6 or 1.2.3.4',
+            'proto.v6Label': 'Target IPv6 Address', 'proto.v6Ph': 'e.g. 2001:db8::1 (brackets added automatically)',
+            'detail.suspended': 'Suspended', 'detail.active': 'Active',
+        }
+    };
+
+    // 当前语言，从 localStorage 读取，默认中文
+    let currentLang = localStorage.getItem('nft_lang') || 'zh';
+
+    // 翻译函数：按 key 获取当前语言文字，支持 {var} 占位符
+    function t(key, vars) {
+        let text = (I18N[currentLang] && I18N[currentLang][key]) || (I18N.zh[key]) || key;
+        if (vars) {
+            Object.keys(vars).forEach(k => {
+                text = text.replace('{' + k + '}', vars[k]);
+            });
+        }
+        return text;
+    }
+
+    // 应用翻译到所有 data-i18n 元素
+    function applyI18n() {
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            const translated = t(key);
+            if (translated !== key) {
+                el.textContent = translated;
+            }
+        });
+        // 更新语言切换按钮文字
+        const langBtn = document.getElementById('langToggleBtn');
+        if (langBtn) {
+            langBtn.textContent = currentLang === 'zh' ? 'EN' : '中文';
+        }
+    }
+
+    // 切换语言
+    function toggleLang() {
+        currentLang = currentLang === 'zh' ? 'en' : 'zh';
+        localStorage.setItem('nft_lang', currentLang);
+        applyI18n();
+        // 刷新动态内容
+        renderRules();
+        updateStatus();
+        ruleCount.textContent = t('rules.total', {n: totalRules});
+        setProtocol(selectedProto);
+        fetchNodes();
+        fetchOverview();
+        fetchNodeManage();
+    }
+
     // --- DOM 引用 ---
     const rulesBody = document.getElementById('rulesBody');
     const ruleCount = document.getElementById('ruleCount');
@@ -40,14 +253,14 @@ document.addEventListener('DOMContentLoaded', () => {
             toggleV4.className = 'toggle-btn active-v4';
             toggleV6.className = 'toggle-btn';
             ipv6Notice.classList.remove('show');
-            addrLabel.textContent = '目标 IPv4 地址';
-            remoteAddrInput.placeholder = '如: 6.6.6.6 或 1.2.3.4';
+            addrLabel.textContent = t('proto.v4Label');
+            remoteAddrInput.placeholder = t('proto.v4Ph');
         } else {
             toggleV4.className = 'toggle-btn';
             toggleV6.className = 'toggle-btn active-v6';
             ipv6Notice.classList.add('show');
-            addrLabel.textContent = '目标 IPv6 地址';
-            remoteAddrInput.placeholder = '如: 2001:db8::1 (自动添加方括号)';
+            addrLabel.textContent = t('proto.v6Label');
+            remoteAddrInput.placeholder = t('proto.v6Ph');
         }
     }
     toggleV4.addEventListener('click', () => setProtocol('ipv4'));
@@ -74,14 +287,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (data.status === '运行中') {
                 statusBadge.className = 'status-badge running';
-                statusText.textContent = '运行中';
+                statusText.textContent = t('status.running');
             } else {
                 statusBadge.className = 'status-badge stopped';
-                statusText.textContent = '已停止';
+                statusText.textContent = t('status.stopped');
             }
         } catch {
             statusBadge.className = 'status-badge stopped';
-            statusText.textContent = '未知';
+            statusText.textContent = t('status.unknown');
         }
     }
 
@@ -91,15 +304,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch(`/api/rules?page=${currentPage}&size=${pageSize}`, {
                 headers: { 'Cache-Control': 'no-cache' }
             });
-            if (!res.ok) throw new Error('获取失败');
+            if (!res.ok) throw new Error('fetch failed');
             const data = await res.json();
 
             totalRules = data.total || 0;
             allRules = Array.isArray(data.rules) ? data.rules : [];
-            ruleCount.textContent = `共 ${totalRules} 条`;
+            ruleCount.textContent = t('rules.total', {n: totalRules});
             renderRules();
         } catch (e) {
-            rulesBody.innerHTML = '<tr class="empty-row"><td colspan="10">获取规则失败</td></tr>';
+            rulesBody.innerHTML = `<tr class="empty-row"><td colspan="10">${t('rules.fetchFail')}</td></tr>`;
         }
     }
 
@@ -109,7 +322,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderRules() {
         if (allRules.length === 0) {
-            rulesBody.innerHTML = '<tr class="empty-row"><td colspan="10">暂无转发规则</td></tr>';
+            rulesBody.innerHTML = `<tr class="empty-row"><td colspan="10">${t('rules.empty')}</td></tr>`;
             updatePagination();
             return;
         }
@@ -130,7 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const usedBytes = rule.used_bytes || 0;
             const quotaGB = rule.quota_gb || 0;
             const resetDay = rule.reset_day || 0;
-            const resetInfo = resetDay > 0 ? `每月${resetDay}号重置` : '';
+            const resetInfo = resetDay > 0 ? (currentLang === 'zh' ? `每月${resetDay}号重置` : `Resets on day ${resetDay}`) : '';
             if (quotaGB > 0) {
                 const quotaBytes = quotaGB * 1024 * 1024 * 1024;
                 const pct = Math.min(100, (usedBytes / quotaBytes) * 100);
@@ -143,27 +356,27 @@ document.addEventListener('DOMContentLoaded', () => {
                         ${resetInfo ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">${resetInfo}</div>` : ''}
                     </div>`;
             } else {
-                trafficHtml = `<div class="traffic-text">${formatBytes(usedBytes)} / 不限</div>`;
+                trafficHtml = `<div class="traffic-text">${formatBytes(usedBytes)} / ${t('traffic.unlimited')}</div>`;
             }
 
             // 状态标签（三态：正常/不通/已封停）
             let statusTag;
             if (suspended) {
-                statusTag = '<span class="status-tag suspended">已封停</span>';
+                statusTag = `<span class="status-tag suspended">${t('status.suspended')}</span>`;
             } else if (rule.reachable === false) {
-                statusTag = '<span class="status-tag unreachable">不通</span>';
+                statusTag = `<span class="status-tag unreachable">${t('status.unreachable')}</span>`;
             } else if (rule.reachable === true) {
-                statusTag = '<span class="status-tag active">正常</span>';
+                statusTag = `<span class="status-tag active">${t('status.active')}</span>`;
             } else {
-                statusTag = '<span class="status-tag checking">检测中</span>';
+                statusTag = `<span class="status-tag checking">${t('status.checkingShort')}</span>`;
             }
 
             // 操作按钮（增加重置按钮）
             let actionsHtml = `
-                <button class="btn btn-outline btn-sm" data-action="edit" data-id="${rule.id}" data-localport="${rule.local_port}" data-addr="${addr}" data-port="${rule.remote_port}" data-note="${rule.note || ''}" data-quota="${quotaGB}" data-resetday="${resetDay}">编辑</button>
-                <button class="btn btn-danger btn-sm" data-action="delete" data-id="${rule.id}">删除</button>`;
+                <button class="btn btn-outline btn-sm" data-action="edit" data-id="${rule.id}" data-localport="${rule.local_port}" data-addr="${addr}" data-port="${rule.remote_port}" data-note="${rule.note || ''}" data-quota="${quotaGB}" data-resetday="${resetDay}">${t('rules.edit')}</button>
+                <button class="btn btn-danger btn-sm" data-action="delete" data-id="${rule.id}">${t('rules.delete')}</button>`;
             if (quotaGB > 0) {
-                actionsHtml += `<button class="btn btn-warning btn-sm" data-action="reset" data-id="${rule.id}" title="清零流量并恢复转发">重置</button>`;
+                actionsHtml += `<button class="btn btn-warning btn-sm" data-action="reset" data-id="${rule.id}">${t('rules.reset')}</button>`;
             }
 
             return `<tr class="${rowClass}">
@@ -185,7 +398,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updatePagination() {
         const totalPages = Math.max(1, Math.ceil(totalRules / pageSize));
-        pageInfo.textContent = `第 ${currentPage} / ${totalPages} 页`;
+        pageInfo.textContent = t('page.info', {cur: currentPage, total: totalPages});
         document.getElementById('prevPage').disabled = currentPage <= 1;
         document.getElementById('nextPage').disabled = currentPage >= totalPages;
     }
@@ -199,14 +412,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const id = btn.dataset.id;
 
         if (action === 'delete') {
-            if (!confirm('确定删除此转发规则？')) return;
+            if (!confirm(t('toast.confirmDelete'))) return;
             try {
                 const res = await fetch(`/api/rules/${id}`, { method: 'DELETE' });
                 if (!res.ok) {
                     const d = await res.json();
-                    throw new Error(d.error || '删除失败');
+                    throw new Error(d.error || 'Delete failed');
                 }
-                showToast('规则已删除', 'success');
+                showToast(t('toast.deleteOk'), 'success');
                 await fetchRules();
                 await updateStatus();
             } catch (err) {
@@ -227,14 +440,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (action === 'reset') {
-            if (!confirm('确定清零该端口的已用流量并恢复转发？')) return;
+            if (!confirm(t('toast.confirmReset'))) return;
             try {
                 const res = await fetch(`/api/rules/${id}/reset`, { method: 'POST' });
                 if (!res.ok) {
                     const d = await res.json();
-                    throw new Error(d.error || '重置失败');
+                    throw new Error(d.error || 'Reset failed');
                 }
-                showToast('流量已重置', 'success');
+                showToast(t('toast.resetOk'), 'success');
                 await fetchRules();
             } catch (err) {
                 showToast(err.message, 'error');
@@ -262,7 +475,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const resetDay = parseInt(document.getElementById('editResetDay').value) || 0;
 
         if (!localPort || !remoteAddr || !remotePort) {
-            showToast('本机端口、目标地址和端口不能为空', 'error');
+            showToast(t('toast.editEmpty'), 'error');
             return;
         }
 
@@ -280,9 +493,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 })
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || '更新失败');
+            if (!res.ok) throw new Error(data.error || 'Update failed');
 
-            showToast('规则已更新', 'success');
+            showToast(t('toast.editOk'), 'success');
             editModal.classList.remove('show');
             await fetchRules();
             await updateStatus();
@@ -301,7 +514,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const resetDay = parseInt(document.getElementById('ruleResetDay').value) || 0;
 
         if (!lp || !ra || !rp) {
-            showToast('请填写所有必填字段', 'error');
+            showToast(t('toast.addEmpty'), 'error');
             return;
         }
 
@@ -324,9 +537,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 })
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || '添加失败');
+            if (!res.ok) throw new Error(data.error || 'Add failed');
 
-            showToast(`${selectedProto.toUpperCase()} 规则已添加`, 'success');
+            showToast(t('toast.addOk', {proto: selectedProto.toUpperCase()}), 'success');
             document.getElementById('localPort').value = '';
             document.getElementById('remoteAddr').value = '';
             document.getElementById('remotePort').value = '';
@@ -344,7 +557,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('batchAddBtn').addEventListener('click', async () => {
         const text = document.getElementById('batchRules').value.trim();
         if (!text) {
-            showToast('请输入规则', 'error');
+            showToast(t('toast.batchEmpty'), 'error');
             return;
         }
 
@@ -372,13 +585,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     remote_port: ipv4Match[3]
                 });
             } else {
-                showToast(`格式错误: ${trimmed}`, 'error');
+                showToast(t('toast.batchFormat', {line: trimmed}), 'error');
                 return;
             }
         }
 
         if (parsedRules.length === 0) {
-            showToast('未解析到有效规则', 'error');
+            showToast(t('toast.batchNone'), 'error');
             return;
         }
 
@@ -389,12 +602,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ rules: parsedRules })
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || '批量添加失败');
+            if (!res.ok) throw new Error(data.error || 'Batch add failed');
 
-            let msg = `成功添加 ${data.added} 条规则`;
-            if (data.failed && data.failed.length > 0) {
-                msg += `，${data.failed.length} 条失败`;
-            }
+            const failedCount = (data.failed && data.failed.length) || 0;
+            const msg = failedCount > 0
+                ? t('toast.batchPartial', {n: data.added, f: failedCount})
+                : t('toast.batchOk', {n: data.added});
             showToast(msg, data.added > 0 ? 'success' : 'error');
             document.getElementById('batchRules').value = '';
             await fetchRules();
@@ -405,21 +618,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- 服务控制 ---
-    async function serviceAction(action, label) {
+    async function serviceAction(action, okKey) {
         try {
             const res = await fetch(`/api/service/${action}`, { method: 'POST' });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || `${label}失败`);
-            showToast(data.message || `${label}成功`, 'success');
+            if (!res.ok) throw new Error(data.error || action + ' failed');
+            showToast(data.message || t(okKey), 'success');
             await updateStatus();
         } catch (e) {
             showToast(e.message, 'error');
         }
     }
 
-    document.getElementById('startBtn').addEventListener('click', () => serviceAction('start', '启动'));
-    document.getElementById('stopBtn').addEventListener('click', () => serviceAction('stop', '停止'));
-    document.getElementById('restartBtn').addEventListener('click', () => serviceAction('restart', '重启'));
+    document.getElementById('startBtn').addEventListener('click', () => serviceAction('start', 'toast.startOk'));
+    document.getElementById('stopBtn').addEventListener('click', () => serviceAction('stop', 'toast.stopOk'));
+    document.getElementById('restartBtn').addEventListener('click', () => serviceAction('restart', 'toast.restartOk'));
 
     // --- 登出 ---
     document.getElementById('logoutBtn').addEventListener('click', async () => {
@@ -459,20 +672,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const confirmPwd = document.getElementById('confirmPassword').value.trim();
 
         if (!oldPwd || !newPwd || !confirmPwd) {
-            showToast('请填写所有密码字段', 'error');
+            showToast(t('toast.pwdEmpty'), 'error');
             return;
         }
         if (newPwd !== confirmPwd) {
-            showToast('两次输入的新密码不一致', 'error');
+            showToast(t('toast.pwdMismatch'), 'error');
             return;
         }
         if (newPwd.length < 4) {
-            showToast('新密码至少 4 个字符', 'error');
+            showToast(t('toast.pwdShort'), 'error');
             return;
         }
 
         pwdSaveBtn.disabled = true;
-        pwdSaveBtn.textContent = '修改中...';
+        pwdSaveBtn.textContent = t('pwd.changing');
 
         try {
             const res = await fetch('/api/password', {
@@ -484,15 +697,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 })
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || '修改失败');
+            if (!res.ok) throw new Error(data.error || 'Change failed');
 
-            showToast('密码修改成功', 'success');
+            showToast(t('toast.pwdOk'), 'success');
             passwordModal.classList.remove('show');
         } catch (err) {
             showToast(err.message, 'error');
         } finally {
             pwdSaveBtn.disabled = false;
-            pwdSaveBtn.textContent = '确认修改';
+            pwdSaveBtn.textContent = t('pwd.confirm');
         }
     });
 
@@ -516,17 +729,17 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchNodes() {
         try {
             const res = await fetch('/api/nodes');
-            if (!res.ok) throw new Error('获取失败');
+            if (!res.ok) throw new Error('fail');
             const data = await res.json();
             renderNodes(data.nodes || []);
         } catch (e) {
-            nodesContainer.innerHTML = '<div class="nodes-empty">获取节点信息失败</div>';
+            nodesContainer.innerHTML = `<div class="nodes-empty">${t('nodes.fetchFail')}</div>`;
         }
     }
 
     function renderNodes(nodes) {
         if (nodes.length === 0) {
-            nodesContainer.innerHTML = '<div class="nodes-empty">暂无已部署节点（可通过脚本菜单安装 Xray Reality 或 Shadowsocks）</div>';
+            nodesContainer.innerHTML = `<div class="nodes-empty">${t('nodes.empty')}</div>`;
             return;
         }
 
@@ -561,9 +774,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const linkHtml = node.link
-                ? `<div class="node-link" data-link="${encodeURIComponent(node.link)}" title="点击复制链接">
+                ? `<div class="node-link" data-link="${encodeURIComponent(node.link)}" title="${t('nodes.copyHint')}">
                        ${node.link}
-                       <span class="copy-hint">点击复制</span>
+                       <span class="copy-hint">${t('nodes.copyHint')}</span>
                    </div>`
                 : '';
 
@@ -582,7 +795,7 @@ document.addEventListener('DOMContentLoaded', () => {
             el.addEventListener('click', () => {
                 const link = decodeURIComponent(el.dataset.link);
                 navigator.clipboard.writeText(link).then(() => {
-                    showToast('连接链接已复制', 'success');
+                    showToast(t('toast.copied'), 'success');
                 }).catch(() => {
                     // fallback
                     const ta = document.createElement('textarea');
@@ -591,14 +804,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     ta.select();
                     document.execCommand('copy');
                     document.body.removeChild(ta);
-                    showToast('连接链接已复制', 'success');
+                    showToast(t('toast.copied'), 'success');
                 });
             });
         });
     }
 
     document.getElementById('refreshNodesBtn').addEventListener('click', () => {
-        nodesContainer.innerHTML = '<div class="nodes-empty">刷新中...</div>';
+        nodesContainer.innerHTML = `<div class="nodes-empty">${t('nodes.refreshing')}</div>`;
         fetchNodes();
     });
 
@@ -609,7 +822,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchOverview() {
         try {
             const res = await fetch('/api/nodes/overview');
-            if (!res.ok) throw new Error('获取失败');
+            if (!res.ok) throw new Error('fetch failed');
             const data = await res.json();
             const nodes = data.nodes || [];
             if (nodes.length === 0) {
@@ -628,11 +841,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderOverview(nodes) {
         overviewBody.innerHTML = nodes.map((node, idx) => {
             const onlineClass = node.online ? 'on' : 'off';
-            const onlineText = node.online ? '在线' : '离线';
+            const onlineText = node.online ? t('overview.online') : t('overview.offline');
             const rulesCount = (node.rules || []).length;
             const totalUsed = (node.rules || []).reduce((s, r) => s + (r.used_bytes || 0), 0);
             const totalQuota = (node.rules || []).reduce((s, r) => s + (r.quota_gb || 0), 0);
-            const quotaText = totalQuota > 0 ? `${totalQuota} GB` : '不限';
+            const quotaText = totalQuota > 0 ? `${totalQuota} GB` : t('traffic.unlimited');
             const lastSeen = node.last_seen ? new Date(node.last_seen).toLocaleTimeString() : '-';
             const rowStyle = node.online ? '' : 'style="color:var(--danger); opacity:0.7"';
 
@@ -664,8 +877,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         <table>
                             <tr><th>端口</th><th>目标</th><th>已用</th><th>配额</th><th>状态</th></tr>
                             ${rules.map(r => {
-                                const statusText = r.enabled === false ? '<span class="status-tag suspended">封停</span>' : '<span class="status-tag active">正常</span>';
-                                const quota = r.quota_gb > 0 ? `${r.quota_gb} GB` : '不限';
+                                const statusText = r.enabled === false ? `<span class="status-tag suspended">${t('detail.suspended')}</span>` : `<span class="status-tag active">${t('detail.active')}</span>`;
+                                const quota = r.quota_gb > 0 ? `${r.quota_gb} GB` : t('traffic.unlimited');
                                 return `<tr>
                                     <td>${r.local_port}</td>
                                     <td>${r.remote_addr}:${r.remote_port}</td>
@@ -685,7 +898,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const refreshOverviewBtn = document.getElementById('refreshOverviewBtn');
     if (refreshOverviewBtn) {
         refreshOverviewBtn.addEventListener('click', () => {
-            overviewBody.innerHTML = '<tr><td colspan="6" class="overview-empty">刷新中...</td></tr>';
+            overviewBody.innerHTML = `<tr><td colspan="6" class="overview-empty">${t('overview.refreshing')}</td></tr>`;
             fetchOverview();
         });
     }
@@ -696,7 +909,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchNodeManage() {
         try {
             const res = await fetch('/api/nodes/manage');
-            if (!res.ok) throw new Error('获取失败');
+            if (!res.ok) throw new Error('fail');
             const data = await res.json();
             renderNodeManage(data.nodes || []);
             // 有节点就显示总览卡片
@@ -704,13 +917,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 overviewCard.hidden = false;
             }
         } catch (e) {
-            nodeManageList.innerHTML = '<div style="color:var(--text-muted);font-size:13px">获取节点列表失败</div>';
+            nodeManageList.innerHTML = `<div style="color:var(--text-muted);font-size:13px">${t('nodeManage.fetchFail')}</div>`;
         }
     }
 
     function renderNodeManage(nodes) {
         if (nodes.length === 0) {
-            nodeManageList.innerHTML = '<div style="color:var(--text-muted);font-size:13px">未配置监控节点，在下方添加被控服务器</div>';
+            nodeManageList.innerHTML = `<div style="color:var(--text-muted);font-size:13px">${t('nodeManage.empty')}</div>`;
             return;
         }
         nodeManageList.innerHTML = nodes.map((n, idx) => {
@@ -718,21 +931,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 <strong style="flex:1;font-size:13px">${n.name}</strong>
                 <span style="flex:2;font-size:12px;color:var(--text-secondary);font-family:monospace">${n.url}</span>
                 <span style="flex:1;font-size:12px;color:var(--text-muted);font-family:monospace;overflow:hidden;text-overflow:ellipsis" title="${n.token}">${n.token.substring(0,12)}...</span>
-                <button class="btn btn-danger btn-sm" data-del-node="${idx}">删除</button>
+                <button class="btn btn-danger btn-sm" data-del-node="${idx}">${t('rules.delete')}</button>
             </div>`;
         }).join('');
 
         nodeManageList.querySelectorAll('[data-del-node]').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const idx = btn.dataset.delNode;
-                if (!confirm('确定删除此监控节点？')) return;
+                if (!confirm(t('toast.confirmDeleteNode'))) return;
                 try {
                     const res = await fetch(`/api/nodes/manage/${idx}`, { method: 'DELETE' });
                     if (!res.ok) {
                         const d = await res.json();
-                        throw new Error(d.error || '删除失败');
+                        throw new Error(d.error || 'Delete failed');
                     }
-                    showToast('节点已删除', 'success');
+                    showToast(t('toast.nodeDeleted'), 'success');
                     fetchNodeManage();
                     fetchOverview();
                 } catch (err) {
@@ -747,7 +960,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const url = document.getElementById('nodeManageURL').value.trim();
         const token = document.getElementById('nodeManageToken').value.trim();
         if (!name || !url || !token) {
-            showToast('节点名称、地址和 Token 不能为空', 'error');
+            showToast(t('toast.nodeEmpty'), 'error');
             return;
         }
         try {
@@ -757,8 +970,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ name, url, token })
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || '添加失败');
-            showToast('节点已添加', 'success');
+            if (!res.ok) throw new Error(data.error || 'Add failed');
+            showToast(t('toast.nodeAdded'), 'success');
             document.getElementById('nodeManageName').value = '';
             document.getElementById('nodeManageURL').value = '';
             document.getElementById('nodeManageToken').value = '';
@@ -771,6 +984,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- 初始化 ---
+    // i18n: 绑定语言切换按钮并应用当前语言
+    const langToggleBtn = document.getElementById('langToggleBtn');
+    if (langToggleBtn) langToggleBtn.addEventListener('click', toggleLang);
+    applyI18n();
+
     fetchRules();
     updateStatus();
     fetchNodes();
