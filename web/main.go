@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/base64"
@@ -17,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,17 +43,18 @@ var staticFS embed.FS
 // --- 数据结构 ---
 
 type ForwardRule struct {
-	ID            string  `json:"id"`
-	LocalPort     string  `json:"local_port"`
-	RemoteAddr    string  `json:"remote_addr"`
-	RemotePort    string  `json:"remote_port"`
-	Note          string  `json:"note"`
-	UsedBytes     uint64  `json:"used_bytes"`
-	QuotaGB       float64 `json:"quota_gb"`
-	Enabled       bool    `json:"enabled"`
-	ResetDay      int     `json:"reset_day"`       // 每月几号重置 (1-31)，0 不自动重置
-	LastResetTime string  `json:"last_reset_time"` // 上次重置的月份 "2026-04"
-	Reachable     *bool   `json:"reachable,omitempty"` // 运行时：落地机是否可达（不持久化）
+	ID             string  `json:"id"`
+	LocalPort      string  `json:"local_port"`
+	RemoteAddr     string  `json:"remote_addr"`
+	RemotePort     string  `json:"remote_port"`
+	Note           string  `json:"note"`
+	UsedBytes      uint64  `json:"used_bytes"`
+	QuotaGB        float64 `json:"quota_gb"`
+	Enabled        bool    `json:"enabled"`
+	ResetDay       int     `json:"reset_day"`       // 每月几号重置 (1-31)，0 不自动重置
+	LastResetTime  string  `json:"last_reset_time"` // 上次重置的月份 "2026-04"
+	Reachable      *bool   `json:"reachable,omitempty"` // 运行时：落地机是否可达（不持久化）
+	LastResolvedIP string  `json:"last_resolved_ip,omitempty"` // 运行时：上次解析的 IP 缓存
 }
 
 type NodeConf struct {
@@ -155,6 +158,36 @@ func validateAddress(addr string) bool {
 func sanitizeForNft(s string) string {
 	safe := regexp.MustCompile(`[^a-zA-Z0-9\.\:\[\]\-\_]`)
 	return safe.ReplaceAllString(s, "")
+}
+
+// resolveDomainIP 把域名解析成单个稳定 IP，供内核 nftables DNAT 使用。
+//   - 带 3 秒超时，避免 DNS 故障时阻塞调用方（generateNftConfLocked 在持锁中调用）
+//   - 优先返回 IPv4（中转转发场景 v4 路由最普遍），无 A 记录才回退 IPv6
+//   - 同组记录排序后取首个，避免 CDN/轮询 DNS 多记录导致 IP 抖动、反复触发 nft 重载
+func resolveDomainIP(host string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return "", err
+	}
+	var v4, v6 []string
+	for _, ip := range ips {
+		if ip.IP.To4() != nil {
+			v4 = append(v4, ip.IP.String())
+		} else {
+			v6 = append(v6, ip.IP.String())
+		}
+	}
+	sort.Strings(v4)
+	sort.Strings(v6)
+	if len(v4) > 0 {
+		return v4[0], nil
+	}
+	if len(v6) > 0 {
+		return v6[0], nil
+	}
+	return "", fmt.Errorf("域名 %s 无可用 A/AAAA 记录", host)
 }
 
 // --- 配置加载 ---
@@ -361,15 +394,31 @@ func generateNftConfLocked() error {
 	buf.WriteString("    chain prerouting {\n")
 	buf.WriteString("        type nat hook prerouting priority -100; policy accept;\n\n")
 
-	for _, rule := range rules {
+	for i := range rules {
+		rule := &rules[i]
 		if !rule.Enabled {
 			continue // 超额封停或被禁用的规则跳过其 NAT，拦截网络
+		}
+
+		targetIP := strings.Trim(rule.RemoteAddr, "[]")
+		if net.ParseIP(targetIP) == nil {
+			// 目标是域名：内核只认 IP，这里替换为解析后的 IP
+			if rule.LastResolvedIP != "" && net.ParseIP(rule.LastResolvedIP) != nil {
+				targetIP = rule.LastResolvedIP // 优先用缓存（含后台定时刷新的结果）
+			} else if ip, err := resolveDomainIP(targetIP); err == nil {
+				targetIP = ip
+				rule.LastResolvedIP = ip // 首次解析成功，写入缓存（后续会持久化到 rules.json）
+			} else {
+				log.Printf("[警告] 规则 %s 的目标域名 %s 解析失败，跳过此转发规则: %v", rule.ID, rule.RemoteAddr, err)
+				buf.WriteString(fmt.Sprintf("        # Rule %s (跳过: 域名 %s 解析失败)\n\n", rule.ID, rule.RemoteAddr))
+				continue
+			}
 		}
 
 		// 安全: 经过校验的值再额外做一次 sanitize
 		lport := sanitizeForNft(rule.LocalPort)
 		rport := sanitizeForNft(rule.RemotePort)
-		addr := sanitizeForNft(strings.Trim(rule.RemoteAddr, "[]"))
+		addr := sanitizeForNft(targetIP)
 
 		noteComment := ""
 		if rule.Note != "" {
@@ -388,7 +437,7 @@ func generateNftConfLocked() error {
 			nftComment = fmt.Sprintf("nat_%s_%s", lport, sanitizedNote)
 		}
 
-		if isIPv6(rule.RemoteAddr) {
+		if isIPv6(targetIP) {
 			buf.WriteString(fmt.Sprintf("        # Rule %s%s\n", rule.ID, noteComment))
 			buf.WriteString(fmt.Sprintf("        tcp dport %s dnat ip6 to [%s]:%s comment \"%s\"\n", lport, addr, rport, nftComment))
 			buf.WriteString(fmt.Sprintf("        udp dport %s dnat ip6 to [%s]:%s comment \"%s\"\n", lport, addr, rport, nftComment))
@@ -406,15 +455,27 @@ func generateNftConfLocked() error {
 	// 用远端 IP+端口匹配（最大兼容性），comment 标记本机端口供解析器提取
 	buf.WriteString("    chain forward {\n")
 	buf.WriteString("        type filter hook forward priority 0; policy accept;\n\n")
-	for _, rule := range rules {
+	for i := range rules {
+		rule := &rules[i]
 		if !rule.Enabled {
 			continue
 		}
+
+		targetIP := strings.Trim(rule.RemoteAddr, "[]")
+		if net.ParseIP(targetIP) == nil {
+			// 域名规则：仅在已有有效缓存 IP 时才生成统计规则；尚未解析成功的跳过，防止 nft 报错
+			if rule.LastResolvedIP != "" && net.ParseIP(rule.LastResolvedIP) != nil {
+				targetIP = rule.LastResolvedIP
+			} else {
+				continue
+			}
+		}
+
 		lport := sanitizeForNft(rule.LocalPort)
 		rport := sanitizeForNft(rule.RemotePort)
-		addr := sanitizeForNft(strings.Trim(rule.RemoteAddr, "[]"))
+		addr := sanitizeForNft(targetIP)
 		ipFamily := "ip"
-		if isIPv6(rule.RemoteAddr) {
+		if isIPv6(targetIP) {
 			ipFamily = "ip6"
 		}
 		// 去程：客户端 → 远端（匹配目标地址+端口）
@@ -753,6 +814,22 @@ func main() {
 			lastDayOfMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Day()
 
 			for i := range rules {
+				// 1. 动态域名解析与变更检测（DDNS/CDN 目标 IP 变化时自动热重载）
+				domain := strings.Trim(rules[i].RemoteAddr, "[]")
+				if net.ParseIP(domain) == nil {
+					// 这是一个域名，后台定时解析其最新 IP（resolveDomainIP 已做超时/优先v4/排序去抖）
+					if resolved, err := resolveDomainIP(domain); err == nil {
+						if rules[i].LastResolvedIP != resolved {
+							log.Printf("[DNS] 域名 %s 目标 IP 发生变更: %s -> %s", rules[i].RemoteAddr, rules[i].LastResolvedIP, resolved)
+							rules[i].LastResolvedIP = resolved
+							changed = true
+						}
+					} else {
+						// 解析失败：保留上次成功的缓存 IP 兜底，不清空、不触发重载
+						log.Printf("[DNS] 后台定时解析域名 %s 失败（沿用缓存 %s）: %v", rules[i].RemoteAddr, rules[i].LastResolvedIP, err)
+					}
+				}
+
 				// 流量统计：增量累加，不直接覆盖
 				// nft counter 在 delete table 后会清零，所以用“本次读数 - 上次读数”算增量
 				if currentCounter, ok := counterMap[rules[i].LocalPort]; ok {
