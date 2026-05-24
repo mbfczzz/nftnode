@@ -6,10 +6,11 @@
 
 - 🚀 **内核级转发** — 使用 nftables NAT，零额外进程，性能极佳
 - 🌐 **IPv4/IPv6 双栈** — 使用 `inet` 表同时支持 IPv4 和 IPv6 转发
+- 🌍 **域名转发** — 支持以域名作为落地地址，面板自动解析为 IP 写入内核；后台每 60 秒动态刷新，DDNS / CDN IP 变化时自动热重载，DNS 故障时沿用缓存 IP 兜底
 - 🖥️ **可视化面板** — 现代浅色主题 Web 管理界面，单二进制部署（go:embed）
 - 📦 **批量操作** — 支持批量导入转发规则
 - 📊 **流量监控** — 基于 nftables counter 的实时流量统计，支持配额限制与账期自动重置
-- 🌍 **中英双语** — 面板 UI 一键切换中文 / English，语言偏好自动记忆
+- 🌏 **中英双语** — 面板 UI 一键切换中文 / English，语言偏好自动记忆
 - 💬 **内核级注释** — DNAT 规则写入 `comment` 元数据，`nft list ruleset` 直接可见规则用途
 - 🔒 **安全认证** — bcrypt 密码哈希 + 随机 Session Secret + 登录限流 + HTTPS 支持
 - 🛡️ **安全隔离** — 仅操作 `inet nft_forward` 表，不影响其他防火墙规则
@@ -64,6 +65,7 @@ curl -L https://raw.githubusercontent.com/wsuming97/nftnode/main/nft-forward.sh 
 |---|---|---|---|
 | 2222 | 6.6.6.6 | 6666 | IPv4 转发 |
 | 3333 | [2001:db8::1] | 7777 | IPv6 转发 |
+| 4444 | example.com | 8888 | 域名转发（自动解析，支持 DDNS）|
 
 > 💡 **关于目标域名的动态 DNS 解析机制**：
 > - **优先 IPv4**：目标地址若配置为域名，系统解析时会优先选择其 IPv4 地址，当且仅当无 A 记录时才回退至 IPv6。
@@ -125,15 +127,18 @@ nftables-forward/
 ├── diagnose.sh                 # 7 步转发诊断工具
 ├── README.md                   # 项目说明
 ├── LICENSE                     # MIT 许可证
-└── web/                        # Web 可视化面板
+└── web/                        # Web 可视化面板（仅含源码，二进制通过 Releases 分发）
     ├── config.toml.example     # 面板配置模板（首次运行自动生成 config.toml）
     ├── go.mod                  # Go 依赖
-    ├── main.go                 # Go 后端（Gin + 规则管理 + 流量统计 + 节点探针）
+    ├── go.sum                  # Go 依赖锁定
+    ├── main.go                 # Go 后端（Gin + 规则管理 + 流量统计 + 节点探针 + 域名解析）
     ├── templates/
     │   ├── index.html          # 管理页面（含 i18n 标记）
     │   └── login.html          # 登录页面（含 i18n 标记）
     └── static/
         └── app.js              # 前端逻辑（含 i18n 翻译系统）
+
+> 💡 编译好的 Linux 二进制文件（`nft-panel-linux-amd64.tar.gz` / `nft-panel-linux-arm64.tar.gz`）通过 [GitHub Releases](https://github.com/wsuming97/nftnode/releases) 分发，不提交到代码仓库。
 ```
 
 ## 📝 生成的 nftables 配置
