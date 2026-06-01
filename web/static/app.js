@@ -912,9 +912,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!res.ok) throw new Error('fail');
             const data = await res.json();
             renderNodeManage(data.nodes || []);
-            // 有节点就显示总览卡片
+            // 有被控节点配置时，同步显示节点总览大盘
             if (data.nodes && data.nodes.length > 0) {
                 overviewCard.hidden = false;
+                fetchOverview();
+            } else {
+                overviewCard.hidden = true;
             }
         } catch (e) {
             nodeManageList.innerHTML = `<div style="color:var(--text-muted);font-size:13px">${t('nodeManage.fetchFail')}</div>`;
