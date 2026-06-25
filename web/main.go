@@ -119,6 +119,13 @@ var (
 	loginLockUntil = make(map[string]time.Time)
 	maxAttempts    = 5
 	lockDuration   = 15 * time.Minute
+
+	// GFW 封锁检测：混合模式（定时探测 + 流量异常触发）
+	gfwMu               sync.RWMutex
+	gfwBlocked           bool
+	gfwTickCount         int // 距上次 GFW 探测的轮询次数
+	gfwCheckInterval     = 5 // 默认每 5 轮（5 分钟）探测一次
+	gfwPrevActiveRules   int // 上一轮有流量增量的规则数（用于异常检测）
 )
 
 // --- 输入校验 ---
@@ -628,6 +635,70 @@ func checkForwardBlocked() bool {
 	return true // FORWARD=DROP 且无 DNAT 放行 → 转发被阻断
 }
 
+// checkGFWBlocked 检测服务器 IP 是否被 GFW 封锁（双向阻断检测）
+// 原理：GFW 对 IP 的封锁是双向的 - 被封锁 IP 不仅国内无法访问，从该 IP 向国内发包也会被边境路由器丢弃
+// 调用时机：由混合模式控制 - 默认每 5 分钟定时调用一次，流量异常时立即触发
+// 方法：并发测试 TCP 连接国内公共 DNS（53端口）与国际 DNS 的成功率
+//
+//	国际至少有一个通 + 国内全部超时 -> 大概率被墙
+func checkGFWBlocked() bool {
+	type probeResult struct {
+		china bool
+		ok    bool
+	}
+
+	// 国内知名公共 DNS（TCP 53 端口）
+	cnEndpoints := []string{
+		"223.5.5.5:53",    // 阿里 DNS
+		"119.29.29.29:53", // 腾讯 DNSPod
+		"180.76.76.76:53", // 百度 DNS
+	}
+	// 国际端点：验证服务器自身出站网络正常
+	intlEndpoints := []string{
+		"8.8.8.8:53", // Google DNS
+		"1.1.1.1:53", // Cloudflare DNS
+	}
+
+	ch := make(chan probeResult, len(cnEndpoints)+len(intlEndpoints))
+
+	for _, ep := range cnEndpoints {
+		go func(addr string) {
+			conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+			if err != nil {
+				ch <- probeResult{china: true, ok: false}
+			} else {
+				conn.Close()
+				ch <- probeResult{china: true, ok: true}
+			}
+		}(ep)
+	}
+	for _, ep := range intlEndpoints {
+		go func(addr string) {
+			conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+			if err != nil {
+				ch <- probeResult{china: false, ok: false}
+			} else {
+				conn.Close()
+				ch <- probeResult{china: false, ok: true}
+			}
+		}(ep)
+	}
+
+	cnFail, intlFail := 0, 0
+	for i := 0; i < len(cnEndpoints)+len(intlEndpoints); i++ {
+		r := <-ch
+		if r.china && !r.ok {
+			cnFail++
+		}
+		if !r.china && !r.ok {
+			intlFail++
+		}
+	}
+
+	// 国际至少有一个通 + 国内全部不通 → 判定被墙
+	return intlFail < len(intlEndpoints) && cnFail == len(cnEndpoints)
+}
+
 func fetchNodeMetrics(n NodeConf) NodeSnapshot {
 	snap := NodeSnapshot{
 		Name:     n.Name,
@@ -812,6 +883,9 @@ func main() {
 			currentDay := now.Day()
 			// 计算当月最后一天：下月1号往前推1天
 			lastDayOfMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Day()
+			// GFW 流量异常追踪：统计本轮有流量增量的规则数 和 目标可达的规则数
+			currActiveRules := 0
+			currReachableRules := 0
 
 			for i := range rules {
 				// 1. 动态域名解析与变更检测（DDNS/CDN 目标 IP 变化时自动热重载）
@@ -832,15 +906,20 @@ func main() {
 
 				// 流量统计：增量累加，不直接覆盖
 				// nft counter 在 delete table 后会清零，所以用“本次读数 - 上次读数”算增量
+				var thisDelta uint64
 				if currentCounter, ok := counterMap[rules[i].LocalPort]; ok {
 					prevCounter := lastCounterSnap[rules[i].LocalPort]
 					if currentCounter >= prevCounter {
-						// 正常增长
-						rules[i].UsedBytes += currentCounter - prevCounter
+						thisDelta = currentCounter - prevCounter
 					} else {
 						// counter 被重置了（delete table 或重启 nftables），直接加上新值
-						rules[i].UsedBytes += currentCounter
+						thisDelta = currentCounter
 					}
+					rules[i].UsedBytes += thisDelta
+				}
+				// 追踪本轮有流量增量的规则数（用于 GFW 异常检测）
+				if thisDelta > 0 {
+					currActiveRules++
 				}
 
 				// 更新连通性状态：落地可达 且 FORWARD 链未被阻断
@@ -848,6 +927,9 @@ func main() {
 				if reachable, ok := reachMap[rules[i].ID]; ok {
 					r := reachable && !forwardBlocked
 					rules[i].Reachable = &r
+					if r {
+						currReachableRules++
+					}
 				}
 
 				// 账期自动重置：当月未重置过 且 今天已到达重置日（或月末兜底）
@@ -883,7 +965,36 @@ func main() {
 			}
 			// 更新 counter 快照，供下一轮增量计算
 			lastCounterSnap = counterMap
+			totalRulesThisCycle := len(rules)
 			mu.Unlock()
+
+			// === GFW 混合检测 ===
+			// 策略：默认每 5 分钟定时探测一次；流量异常时立即触发确认
+			// 流量异常判定：上轮 ≥3 条规则有流量 → 本轮全部归零 + 目标仍可达
+			gfwTickCount++
+			shouldCheckGFW := gfwTickCount >= gfwCheckInterval
+			if !shouldCheckGFW && gfwPrevActiveRules >= 3 && currActiveRules == 0 &&
+				currReachableRules > 0 && totalRulesThisCycle > 0 {
+				shouldCheckGFW = true
+				log.Printf("[GFW] 流量异常触发探测：上轮 %d 条规则有流量，本轮全部归零（目标可达 %d 条）",
+					gfwPrevActiveRules, currReachableRules)
+			}
+			gfwPrevActiveRules = currActiveRules
+
+			if shouldCheckGFW {
+				gfwTickCount = 0
+				isGFWBlocked := checkGFWBlocked()
+				gfwMu.Lock()
+				if isGFWBlocked != gfwBlocked {
+					if isGFWBlocked {
+						log.Println("[GFW] ⚠️ 检测到服务器 IP 可能被墙：国内 DNS 端点全部超时，国际端点正常")
+					} else {
+						log.Println("[GFW] ✓ 服务器 IP 国内连通性已恢复")
+					}
+					gfwBlocked = isGFWBlocked
+				}
+				gfwMu.Unlock()
+			}
 		}
 	}()
 
@@ -1019,9 +1130,13 @@ func main() {
 				end = total
 			}
 
+			gfwMu.RLock()
+			isGFW := gfwBlocked
+			gfwMu.RUnlock()
 			c.JSON(200, gin.H{
-				"rules": rules[start:end],
-				"total": total,
+				"rules":       rules[start:end],
+				"total":       total,
+				"gfw_blocked": isGFW,
 			})
 		})
 
@@ -1453,7 +1568,10 @@ func main() {
 			if err == nil {
 				status = "运行中"
 			}
-			c.JSON(200, gin.H{"status": status})
+			gfwMu.RLock()
+			isGFW := gfwBlocked
+			gfwMu.RUnlock()
+			c.JSON(200, gin.H{"status": status, "gfw_blocked": isGFW})
 		})
 
 		// 登出

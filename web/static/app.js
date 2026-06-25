@@ -97,6 +97,9 @@ document.addEventListener('DOMContentLoaded', () => {
             'nodeManage.token': 'Metrics Token', 'nodeManage.add': '添加节点',
             'nodeManage.empty': '未配置监控节点，在下方添加被控服务器',
             'nodeManage.fetchFail': '获取节点列表失败',
+            // GFW 封锁检测
+            'gfw.blocked': '⚠️ 检测到服务器 IP 可能被墙（无法连接国内网络），所有中转链路已中断',
+            'gfw.statusBlocked': '入口被墙',
         },
         en: {
             'header.title': 'nftables Forward Manager',
@@ -168,6 +171,9 @@ document.addEventListener('DOMContentLoaded', () => {
             'proto.v4Label': 'Target IPv4 Address', 'proto.v4Ph': 'e.g. 6.6.6.6 or 1.2.3.4',
             'proto.v6Label': 'Target IPv6 Address', 'proto.v6Ph': 'e.g. 2001:db8::1 (brackets added automatically)',
             'detail.suspended': 'Suspended', 'detail.active': 'Active',
+            // GFW detection
+            'gfw.blocked': '⚠️ Server IP may be blocked by GFW (cannot reach Chinese network), all relay chains broken',
+            'gfw.statusBlocked': 'GFW Blocked',
         }
     };
 
@@ -236,6 +242,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let totalRules = 0;
     let allRules = [];
     let selectedProto = 'ipv4'; // 当前选中的协议
+    let gfwBlocked = false;     // GFW 封锁状态（从后端定时同步）
 
     // --- 工具函数 ---
     function formatBytes(bytes) {
@@ -292,6 +299,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusBadge.className = 'status-badge stopped';
                 statusText.textContent = t('status.stopped');
             }
+
+            // GFW 封锁检测：后端通过对比国内外 DNS 端点连通性判断是否被墙
+            const wasBlocked = gfwBlocked;
+            gfwBlocked = data.gfw_blocked === true;
+            const gfwBanner = document.getElementById('gfwBanner');
+            if (gfwBanner) {
+                if (gfwBlocked) {
+                    gfwBanner.hidden = false;
+                    gfwBanner.textContent = t('gfw.blocked');
+                } else {
+                    gfwBanner.hidden = true;
+                }
+            }
+            // GFW 状态变化时刷新规则列表以更新状态列显示
+            if (wasBlocked !== gfwBlocked && allRules.length > 0) {
+                renderRules();
+            }
         } catch {
             statusBadge.className = 'status-badge stopped';
             statusText.textContent = t('status.unknown');
@@ -309,6 +333,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             totalRules = data.total || 0;
             allRules = Array.isArray(data.rules) ? data.rules : [];
+            // 同步 GFW 状态（规则接口也返回，避免首次加载时状态闪烁）
+            if (data.gfw_blocked !== undefined) gfwBlocked = data.gfw_blocked === true;
             ruleCount.textContent = t('rules.total', {n: totalRules});
             renderRules();
         } catch (e) {
@@ -359,9 +385,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 trafficHtml = `<div class="traffic-text">${formatBytes(usedBytes)} / ${t('traffic.unlimited')}</div>`;
             }
 
-            // 状态标签（三态：正常/不通/已封停）
+            // 状态标签（四态：入口被墙/已封停/不通/正常）
             let statusTag;
-            if (suspended) {
+            if (gfwBlocked && !suspended) {
+                // GFW 封锁时，非封停规则显示“入口被墙”（封停规则仍显示“已封停”以保留配额信息）
+                statusTag = `<span class="status-tag gfw-blocked">${t('gfw.statusBlocked')}</span>`;
+            } else if (suspended) {
                 statusTag = `<span class="status-tag suspended">${t('status.suspended')}</span>`;
             } else if (rule.reachable === false) {
                 statusTag = `<span class="status-tag unreachable">${t('status.unreachable')}</span>`;
