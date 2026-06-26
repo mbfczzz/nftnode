@@ -25,7 +25,7 @@
 ## 🔧 一键安装
 
 ```bash
-curl -L https://raw.githubusercontent.com/wsuming97/nftnode/main/nft-forward.sh -o nft-forward.sh && chmod +x nft-forward.sh && ./nft-forward.sh
+curl -L https://raw.githubusercontent.com/mbfczzz/nftnode/main/nft-forward.sh -o nft-forward.sh && chmod +x nft-forward.sh && ./nft-forward.sh
 ```
 
 ## 📖 使用说明

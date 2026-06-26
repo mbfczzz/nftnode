@@ -9,8 +9,11 @@
 sh_ver="1.0.0"
 panel_ver="v1.4"
 
-# GitHub 仓库（修改为你的用户名/仓库名）
-GITHUB_REPO="wsuming97/nftnode"
+# GitHub 仓库（脚本自更新源 — 你的用户名/仓库名）
+GITHUB_REPO="mbfczzz/nftnode"
+
+# 面板二进制下载源（含编译好的 Releases 资源；本仓库无 Releases 时沿用上游）
+PANEL_REPO="wsuming97/nftnode"
 
 # 颜色定义
 RED="\033[31m"
@@ -553,8 +556,8 @@ install_panel() {
 
     mkdir -p "$PANEL_DIR"
 
-    # 注: 实际使用时需替换为你的 GitHub Releases 下载地址
-    local url="https://github.com/${GITHUB_REPO}/releases/download/${panel_ver}/${p_file}"
+    # 面板二进制从 PANEL_REPO 的 Releases 下载
+    local url="https://github.com/${PANEL_REPO}/releases/download/${panel_ver}/${p_file}"
     echo -e "${YELLOW}下载面板: ${url}${PLAIN}"
     if wget -O "/tmp/$p_file" "$url" 2>/dev/null || curl -L -o "/tmp/$p_file" "$url" 2>/dev/null; then
         tar -xzf "/tmp/$p_file" -C "$PANEL_DIR" && chmod +x "$PANEL_BIN" && rm -f "/tmp/$p_file"
@@ -637,7 +640,7 @@ update_panel() {
         *) echo "不支持架构: $arch"; return ;;
     esac
 
-    local url="https://github.com/${GITHUB_REPO}/releases/download/${panel_ver}/${p_file}"
+    local url="https://github.com/${PANEL_REPO}/releases/download/${panel_ver}/${p_file}"
     echo -e "${YELLOW}下载 ${panel_ver}: ${url}${PLAIN}"
 
     if wget -O "/tmp/$p_file" "$url" 2>/dev/null || curl -L -o "/tmp/$p_file" "$url" 2>/dev/null; then
