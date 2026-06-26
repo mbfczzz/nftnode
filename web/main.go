@@ -40,34 +40,76 @@ var staticFS embed.FS
 
 // --- 数据结构 ---
 
-type ForwardRule struct {
-	ID             string  `json:"id"`
-	LocalPort      string  `json:"local_port"`
-	RemoteAddr     string  `json:"remote_addr"`
-	RemotePort     string  `json:"remote_port"`
-	BackupAddr     string  `json:"backup_addr,omitempty"` // 备用落地地址（IPv4/IPv6/域名），可选
-	BackupPort     string  `json:"backup_port,omitempty"` // 备用落地端口
-	Note           string  `json:"note"`
-	UsedBytes      uint64  `json:"used_bytes"`
-	QuotaGB        float64 `json:"quota_gb"`
-	Enabled        bool    `json:"enabled"`
-	ResetDay       int     `json:"reset_day"`       // 每月几号重置 (1-31)，0 不自动重置
-	LastResetTime  string  `json:"last_reset_time"` // 上次重置的月份 "2026-04"
-	Reachable      *bool   `json:"reachable,omitempty"`             // 运行时：当前生效线路是否可达（不持久化）
-	LastResolvedIP string  `json:"last_resolved_ip,omitempty"`      // 主线路：上次解析的 IP 缓存
-	BackupLastResolvedIP string `json:"backup_last_resolved_ip,omitempty"` // 备用线路：上次解析的 IP 缓存
-	UsingBackup    bool    `json:"using_backup"`           // 运行时：当前是否切到备用线路（不持久化）
-	PrimaryUp      *bool   `json:"primary_up,omitempty"`   // 运行时：主线路是否可达
-	BackupUp       *bool   `json:"backup_up,omitempty"`    // 运行时：备用线路是否可达
+// BackupLine 表示一条备用落地线路（按列表顺序优先级递减）。
+type BackupLine struct {
+	Addr           string `json:"addr"`
+	Port           string `json:"port"`
+	LastResolvedIP string `json:"last_resolved_ip,omitempty"` // 域名解析缓存（持久化）
+	Up             *bool  `json:"up,omitempty"`               // 运行时：去抖后的稳定可达状态（不持久化）
+	failStreak     int    // 运行时：连续拨测失败计数（不持久化）
+	okStreak       int    // 运行时：连续拨测成功计数（不持久化）
 }
 
-// activeTarget 返回当前生效线路的（地址, 端口, 已缓存解析IP）。
-// 主优先：仅当切到备用且配置了备用时才用备用线路。
-func (r *ForwardRule) activeTarget() (addr, port, cachedIP string) {
-	if r.UsingBackup && r.BackupAddr != "" {
-		return r.BackupAddr, r.BackupPort, r.BackupLastResolvedIP
+type ForwardRule struct {
+	ID             string       `json:"id"`
+	LocalPort      string       `json:"local_port"`
+	RemoteAddr     string       `json:"remote_addr"` // 主线路地址
+	RemotePort     string       `json:"remote_port"` // 主线路端口
+	Backups        []BackupLine `json:"backups,omitempty"` // 有序备用线路（主→备1→备2…）
+	Note           string       `json:"note"`
+	UsedBytes      uint64       `json:"used_bytes"`
+	QuotaGB        float64      `json:"quota_gb"`
+	Enabled        bool         `json:"enabled"`
+	ResetDay       int          `json:"reset_day"`       // 每月几号重置 (1-31)，0 不自动重置
+	LastResetTime  string       `json:"last_reset_time"` // 上次重置的月份 "2026-04"
+	Reachable      *bool        `json:"reachable,omitempty"`        // 运行时：当前生效线路是否可达（不持久化）
+	LastResolvedIP string       `json:"last_resolved_ip,omitempty"` // 主线路：解析缓存
+	ActiveLine     int          `json:"active_line"`                // 运行时：当前生效线路 0=主，1..N=第N条备用
+	PrimaryUp      *bool        `json:"primary_up,omitempty"`       // 运行时：主线路去抖后状态
+	primaryFail    int          // 运行时：主线路连续失败计数（不持久化）
+	primaryOk      int          // 运行时：主线路连续成功计数（不持久化）
+}
+
+// 连续多少次同结果才翻转线路状态（去抖，避免抖动导致频繁切换/重载）
+const failoverThreshold = 2
+
+// lineAt 返回第 idx 条线路的（地址, 端口, 解析缓存）。idx=0 为主线路。
+func (r *ForwardRule) lineAt(idx int) (addr, port, cachedIP string) {
+	if idx <= 0 || idx > len(r.Backups) {
+		return r.RemoteAddr, r.RemotePort, r.LastResolvedIP
 	}
-	return r.RemoteAddr, r.RemotePort, r.LastResolvedIP
+	b := r.Backups[idx-1]
+	return b.Addr, b.Port, b.LastResolvedIP
+}
+
+// activeTarget 返回当前生效线路的（地址, 端口, 解析缓存）。
+func (r *ForwardRule) activeTarget() (addr, port, cachedIP string) {
+	return r.lineAt(r.ActiveLine)
+}
+
+// debounceUp 按 N 次连续同结果去抖更新稳定状态。
+// 首次（cur==nil）直接采纳本次结果；之后需连续 threshold 次相同结果才翻转。
+func debounceUp(rawUp bool, cur *bool, fail, ok *int, threshold int) *bool {
+	if rawUp {
+		*ok++
+		*fail = 0
+	} else {
+		*fail++
+		*ok = 0
+	}
+	if cur == nil {
+		v := rawUp
+		return &v
+	}
+	if rawUp && !*cur && *ok >= threshold {
+		v := true
+		return &v
+	}
+	if !rawUp && *cur && *fail >= threshold {
+		v := false
+		return &v
+	}
+	return cur
 }
 
 type PanelConfig struct {
@@ -144,13 +186,30 @@ func validateAddress(addr string) bool {
 	return false
 }
 
-// validateBackup 校验备用线路：留空表示不启用（合法）；
-// 一旦填写则地址与端口必须同时存在且合法。
-func validateBackup(addr, port string) bool {
-	if addr == "" && port == "" {
-		return true // 不配置备用线路
+// validateBackups 校验备用线路列表：空列表合法（不启用备用）；
+// 每条都必须地址+端口合法；最多 8 条。
+func validateBackups(backups []BackupLine) bool {
+	if len(backups) > 8 {
+		return false
 	}
-	return validateAddress(addr) && validatePort(port)
+	for _, b := range backups {
+		if !validateAddress(b.Addr) || !validatePort(b.Port) {
+			return false
+		}
+	}
+	return true
+}
+
+// sanitizeBackups 仅保留客户端传入的地址与端口，丢弃任何运行时字段（解析缓存/状态）。
+func sanitizeBackups(in []BackupLine) []BackupLine {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]BackupLine, len(in))
+	for i, b := range in {
+		out[i] = BackupLine{Addr: b.Addr, Port: b.Port}
+	}
+	return out
 }
 
 // 防止 nftables 配置注入：只允许安全字符
@@ -384,8 +443,16 @@ func saveRulesLocked() error {
 	for i := range cp {
 		cp[i].Reachable = nil
 		cp[i].PrimaryUp = nil
-		cp[i].BackupUp = nil
-		cp[i].UsingBackup = false
+		cp[i].ActiveLine = 0
+		// 深拷贝备用线路切片，避免与内存共享底层数组；清空运行时 Up（保留解析缓存）
+		if len(cp[i].Backups) > 0 {
+			nb := make([]BackupLine, len(cp[i].Backups))
+			copy(nb, cp[i].Backups)
+			for j := range nb {
+				nb[j].Up = nil
+			}
+			cp[i].Backups = nb
+		}
 	}
 	data, err := json.MarshalIndent(cp, "", "  ")
 	if err != nil {
@@ -431,9 +498,9 @@ func generateNftConfLocked() error {
 				targetIP = activeCachedIP // 优先用缓存（含后台定时刷新的结果）
 			} else if ip, err := resolveDomainIP(targetIP); err == nil {
 				targetIP = ip
-				// 首次解析成功，写入对应线路的缓存
-				if rule.UsingBackup && rule.BackupAddr != "" {
-					rule.BackupLastResolvedIP = ip
+				// 首次解析成功，写入当前生效线路的缓存
+				if rule.ActiveLine > 0 && rule.ActiveLine <= len(rule.Backups) {
+					rule.Backups[rule.ActiveLine-1].LastResolvedIP = ip
 				} else {
 					rule.LastResolvedIP = ip
 				}
@@ -561,6 +628,14 @@ func saveAndApplyLocked(backup []ForwardRule) error {
 func snapshotRules() []ForwardRule {
 	cp := make([]ForwardRule, len(rules))
 	copy(cp, rules)
+	// 深拷贝备用线路切片，确保回滚快照与内存互不影响
+	for i := range cp {
+		if len(cp[i].Backups) > 0 {
+			nb := make([]BackupLine, len(cp[i].Backups))
+			copy(nb, cp[i].Backups)
+			cp[i].Backups = nb
+		}
+	}
 	return cp
 }
 
@@ -764,46 +839,42 @@ func main() {
 			// 并发拨测所有落地机连通性（每条规则一个 goroutine，3 秒超时）
 			// 先拷贝需要拨测的信息，避免长时间持锁
 			// 用 rule.ID 作为索引键，避免拨测期间增删规则导致下标错位
+			// 为每条规则的每条线路（主+各备用）生成一个拨测任务
 			mu.Lock()
-			type probeTarget struct {
+			type probeJob struct {
 				id         string
+				line       int // 0=主，1..N=第N条备用
 				addr, port string
-				backupAddr, backupPort string
 			}
-			targets := make([]probeTarget, len(rules))
-			for i, rule := range rules {
-				targets[i] = probeTarget{rule.ID, rule.RemoteAddr, rule.RemotePort, rule.BackupAddr, rule.BackupPort}
+			var jobs []probeJob
+			for _, rule := range rules {
+				jobs = append(jobs, probeJob{rule.ID, 0, rule.RemoteAddr, rule.RemotePort})
+				for j, b := range rule.Backups {
+					jobs = append(jobs, probeJob{rule.ID, j + 1, b.Addr, b.Port})
+				}
 			}
 			mu.Unlock()
 
 			type probeResult struct {
-				id        string
-				primaryUp bool
-				hasBackup bool
-				backupUp  bool
+				id   string
+				line int
+				up   bool
 			}
-			results := make(chan probeResult, len(targets))
-			for _, t := range targets {
-				go func(t probeTarget) {
-					primaryUp := dialOK(t.addr, t.port)
-					hasBackup := t.backupAddr != ""
-					backupUp := false
-					if hasBackup {
-						backupUp = dialOK(t.backupAddr, t.backupPort)
-					}
-					results <- probeResult{t.id, primaryUp, hasBackup, backupUp}
-				}(t)
+			results := make(chan probeResult, len(jobs))
+			for _, jb := range jobs {
+				go func(jb probeJob) {
+					results <- probeResult{jb.id, jb.line, dialOK(jb.addr, jb.port)}
+				}(jb)
 			}
 
-			// 收集拨测结果（按规则 ID 索引）
-			primaryReach := make(map[string]bool)
-			backupReach := make(map[string]bool)
-			hasBackupMap := make(map[string]bool)
-			for j := 0; j < len(targets); j++ {
+			// 收集拨测结果：rawReach[规则ID][线路序号] = 是否可达
+			rawReach := make(map[string]map[int]bool)
+			for k := 0; k < len(jobs); k++ {
 				r := <-results
-				primaryReach[r.id] = r.primaryUp
-				backupReach[r.id] = r.backupUp
-				hasBackupMap[r.id] = r.hasBackup
+				if rawReach[r.id] == nil {
+					rawReach[r.id] = make(map[int]bool)
+				}
+				rawReach[r.id][r.line] = r.up
 			}
 
 			counterMap := parseNftCounters(out)
@@ -817,13 +888,12 @@ func main() {
 			lastDayOfMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Day()
 
 			for i := range rules {
-				// 1. 动态域名解析与变更检测（DDNS/CDN 目标 IP 变化时自动热重载）
-				// 主线路与备用线路的域名都做动态解析（DDNS/CDN 目标 IP 变化时自动热重载）
+				// 1. 主线路与所有备用线路的域名动态解析（DDNS/CDN IP 变化时自动热重载）
 				if resolveAndCache(rules[i].RemoteAddr, &rules[i].LastResolvedIP, "主") {
 					changed = true
 				}
-				if rules[i].BackupAddr != "" {
-					if resolveAndCache(rules[i].BackupAddr, &rules[i].BackupLastResolvedIP, "备") {
+				for j := range rules[i].Backups {
+					if resolveAndCache(rules[i].Backups[j].Addr, &rules[i].Backups[j].LastResolvedIP, fmt.Sprintf("备%d", j+1)) {
 						changed = true
 					}
 				}
@@ -842,35 +912,42 @@ func main() {
 					rules[i].UsedBytes += thisDelta
 				}
 
-				// 主/备故障切换 + 连通性状态更新（按规则 ID 匹配，避免增删导致错位）
-				if primaryUp, ok := primaryReach[rules[i].ID]; ok {
-					hasBackup := hasBackupMap[rules[i].ID]
-					backupUp := backupReach[rules[i].ID]
+				// 主/备多线路故障切换 + 去抖 + 连通性状态（按规则 ID 匹配，避免增删错位）
+				if raw, ok := rawReach[rules[i].ID]; ok {
+					// 各线路按 N 次连续同结果去抖，更新稳定可达状态
+					rules[i].PrimaryUp = debounceUp(raw[0], rules[i].PrimaryUp, &rules[i].primaryFail, &rules[i].primaryOk, failoverThreshold)
+					for j := range rules[i].Backups {
+						b := &rules[i].Backups[j]
+						b.Up = debounceUp(raw[j+1], b.Up, &b.failStreak, &b.okStreak, failoverThreshold)
+					}
 
-					// 主优先：主通用主；主断且备用通才切备用；都断则维持主（规则会因不可达而显示异常）
-					newUsing := !primaryUp && hasBackup && backupUp
-					if newUsing != rules[i].UsingBackup {
-						if newUsing {
-							log.Printf("[切换] 规则 %s (端口 %s) 主线路不可达，切换到备用线路 %s:%s", rules[i].ID, rules[i].LocalPort, rules[i].BackupAddr, rules[i].BackupPort)
-						} else {
-							log.Printf("[切换] 规则 %s (端口 %s) 主线路恢复，切回主线路 %s:%s", rules[i].ID, rules[i].LocalPort, rules[i].RemoteAddr, rules[i].RemotePort)
+					// 选取生效线路：按优先级（主→备1→备2…）取第一条稳定可达的
+					lineUp := func(idx int) bool {
+						if idx == 0 {
+							return rules[i].PrimaryUp != nil && *rules[i].PrimaryUp
 						}
-						rules[i].UsingBackup = newUsing
+						up := rules[i].Backups[idx-1].Up
+						return up != nil && *up
+					}
+					newActive := 0 // 都不通则维持主线路（规则将显示不可达）
+					for idx := 0; idx <= len(rules[i].Backups); idx++ {
+						if lineUp(idx) {
+							newActive = idx
+							break
+						}
+					}
+					if newActive != rules[i].ActiveLine {
+						oldAddr, oldPort, _ := rules[i].lineAt(rules[i].ActiveLine)
+						newAddr, newPort, _ := rules[i].lineAt(newActive)
+						log.Printf("[切换] 规则 %s (端口 %s) 线路切换: 线路%d(%s:%s) -> 线路%d(%s:%s)",
+							rules[i].ID, rules[i].LocalPort, rules[i].ActiveLine, oldAddr, oldPort, newActive, newAddr, newPort)
+						rules[i].ActiveLine = newActive
 						changed = true // 触发 nft 重载，使新线路生效
 					}
 
 					// 运行时状态：当前生效线路是否可达
-					activeUp := primaryUp || (hasBackup && backupUp)
-					r := activeUp && !forwardBlocked
+					r := lineUp(newActive) && !forwardBlocked
 					rules[i].Reachable = &r
-					p := primaryUp
-					rules[i].PrimaryUp = &p
-					if hasBackup {
-						b := backupUp
-						rules[i].BackupUp = &b
-					} else {
-						rules[i].BackupUp = nil
-					}
 				}
 
 				// 账期自动重置：当月未重置过 且 今天已到达重置日（或月末兜底）
@@ -1001,14 +1078,13 @@ func main() {
 		// 添加单条规则
 		api.POST("/api/rules", func(c *gin.Context) {
 			var input struct {
-				LocalPort  string  `json:"local_port"`
-				RemoteAddr string  `json:"remote_addr"`
-				RemotePort string  `json:"remote_port"`
-				BackupAddr string  `json:"backup_addr"`
-				BackupPort string  `json:"backup_port"`
-				Note       string  `json:"note"`
-				QuotaGB    float64 `json:"quota_gb"`
-				ResetDay   int     `json:"reset_day"`
+				LocalPort  string       `json:"local_port"`
+				RemoteAddr string       `json:"remote_addr"`
+				RemotePort string       `json:"remote_port"`
+				Backups    []BackupLine `json:"backups"`
+				Note       string       `json:"note"`
+				QuotaGB    float64      `json:"quota_gb"`
+				ResetDay   int          `json:"reset_day"`
 			}
 			if err := c.ShouldBindJSON(&input); err != nil {
 				c.JSON(400, gin.H{"error": "无效输入"})
@@ -1028,9 +1104,9 @@ func main() {
 				c.JSON(400, gin.H{"error": "目标地址无效，请输入合法的 IPv4/IPv6/域名"})
 				return
 			}
-			// 备用线路可选：填了就必须地址+端口都合法
-			if !validateBackup(input.BackupAddr, input.BackupPort) {
-				c.JSON(400, gin.H{"error": "备用线路无效：地址和端口需同时填写且合法 (IPv4/IPv6/域名 + 1-65535)"})
+			// 备用线路可选：每条都必须地址+端口合法，最多 8 条
+			if !validateBackups(input.Backups) {
+				c.JSON(400, gin.H{"error": "备用线路无效：每条需填合法地址(IPv4/IPv6/域名)+端口(1-65535)，最多 8 条"})
 				return
 			}
 
@@ -1053,8 +1129,7 @@ func main() {
 				LocalPort:  input.LocalPort,
 				RemoteAddr: input.RemoteAddr,
 				RemotePort: input.RemotePort,
-				BackupAddr: input.BackupAddr,
-				BackupPort: input.BackupPort,
+				Backups:    sanitizeBackups(input.Backups),
 				Note:       input.Note,
 				QuotaGB:    input.QuotaGB,
 				ResetDay:   input.ResetDay,
@@ -1240,14 +1315,13 @@ func main() {
 		api.PUT("/api/rules/:id", func(c *gin.Context) {
 			id := c.Param("id")
 			var input struct {
-				LocalPort  string  `json:"local_port"`
-				RemoteAddr string  `json:"remote_addr"`
-				RemotePort string  `json:"remote_port"`
-				BackupAddr string  `json:"backup_addr"`
-				BackupPort string  `json:"backup_port"`
-				Note       string  `json:"note"`
-				QuotaGB    float64 `json:"quota_gb"`
-				ResetDay   int     `json:"reset_day"`
+				LocalPort  string       `json:"local_port"`
+				RemoteAddr string       `json:"remote_addr"`
+				RemotePort string       `json:"remote_port"`
+				Backups    []BackupLine `json:"backups"`
+				Note       string       `json:"note"`
+				QuotaGB    float64      `json:"quota_gb"`
+				ResetDay   int          `json:"reset_day"`
 			}
 			if err := c.ShouldBindJSON(&input); err != nil {
 				c.JSON(400, gin.H{"error": "无效输入"})
@@ -1267,9 +1341,9 @@ func main() {
 				c.JSON(400, gin.H{"error": "目标地址无效，请输入合法的 IPv4/IPv6/域名"})
 				return
 			}
-			// 备用线路：允许清空（两者都空）；否则地址+端口都要合法
-			if !validateBackup(input.BackupAddr, input.BackupPort) {
-				c.JSON(400, gin.H{"error": "备用线路无效：地址和端口需同时填写且合法 (IPv4/IPv6/域名 + 1-65535)"})
+			// 备用线路：允许清空（空列表）；否则每条都要合法
+			if !validateBackups(input.Backups) {
+				c.JSON(400, gin.H{"error": "备用线路无效：每条需填合法地址(IPv4/IPv6/域名)+端口(1-65535)，最多 8 条"})
 				return
 			}
 
@@ -1299,14 +1373,9 @@ func main() {
 					if input.RemotePort != "" {
 						rules[i].RemotePort = input.RemotePort
 					}
-					// 备用线路允许清空，所以始终覆盖；清空时一并复位运行时切换状态与缓存
-					rules[i].BackupAddr = input.BackupAddr
-					rules[i].BackupPort = input.BackupPort
-					if input.BackupAddr == "" {
-						rules[i].UsingBackup = false
-						rules[i].BackupLastResolvedIP = ""
-						rules[i].BackupUp = nil
-					}
+					// 备用线路列表始终整体覆盖；线路拓扑变了，复位生效线路为主线路，下个周期重新决策
+					rules[i].Backups = sanitizeBackups(input.Backups)
+					rules[i].ActiveLine = 0
 					// 备注允许清空，所以始终更新
 					rules[i].Note = input.Note
 					// 配额和重置日始终更新
