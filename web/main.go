@@ -17,7 +17,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -136,10 +135,10 @@ func sanitizeForNft(s string) string {
 	return safe.ReplaceAllString(s, "")
 }
 
-// resolveDomainIP 把域名解析成单个稳定 IP，供内核 nftables DNAT 使用。
+// resolveDomainIP 把域名解析成单个 IP，供内核 nftables DNAT 使用。
 //   - 带 3 秒超时，避免 DNS 故障时阻塞调用方（generateNftConfLocked 在持锁中调用）
 //   - 优先返回 IPv4（中转转发场景 v4 路由最普遍），无 A 记录才回退 IPv6
-//   - 同组记录排序后取首个，避免 CDN/轮询 DNS 多记录导致 IP 抖动、反复触发 nft 重载
+//   - 直接取解析返回的首个记录（不排序），CDN/轮询 DNS 多记录时以解析顺序为准
 func resolveDomainIP(host string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -155,8 +154,6 @@ func resolveDomainIP(host string) (string, error) {
 			v6 = append(v6, ip.IP.String())
 		}
 	}
-	sort.Strings(v4)
-	sort.Strings(v6)
 	if len(v4) > 0 {
 		return v4[0], nil
 	}
@@ -738,7 +735,7 @@ func main() {
 				// 1. 动态域名解析与变更检测（DDNS/CDN 目标 IP 变化时自动热重载）
 				domain := strings.Trim(rules[i].RemoteAddr, "[]")
 				if net.ParseIP(domain) == nil {
-					// 这是一个域名，后台定时解析其最新 IP（resolveDomainIP 已做超时/优先v4/排序去抖）
+					// 这是一个域名，后台定时解析其最新 IP（resolveDomainIP 已做超时/优先v4）
 					if resolved, err := resolveDomainIP(domain); err == nil {
 						if rules[i].LastResolvedIP != resolved {
 							log.Printf("[DNS] 域名 %s 目标 IP 发生变更: %s -> %s", rules[i].RemoteAddr, rules[i].LastResolvedIP, resolved)
@@ -746,8 +743,14 @@ func main() {
 							changed = true
 						}
 					} else {
-						// 解析失败：保留上次成功的缓存 IP 兜底，不清空、不触发重载
-						log.Printf("[DNS] 后台定时解析域名 %s 失败（沿用缓存 %s）: %v", rules[i].RemoteAddr, rules[i].LastResolvedIP, err)
+						// 解析失败：清空缓存 IP，触发重载使该规则被跳过（不再沿用旧 IP 兜底）
+						if rules[i].LastResolvedIP != "" {
+							log.Printf("[DNS] 后台定时解析域名 %s 失败，清空缓存 IP %s 并跳过该转发: %v", rules[i].RemoteAddr, rules[i].LastResolvedIP, err)
+							rules[i].LastResolvedIP = ""
+							changed = true
+						} else {
+							log.Printf("[DNS] 后台定时解析域名 %s 失败: %v", rules[i].RemoteAddr, err)
+						}
 					}
 				}
 
