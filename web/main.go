@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"embed"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -57,12 +56,6 @@ type ForwardRule struct {
 	LastResolvedIP string  `json:"last_resolved_ip,omitempty"` // 运行时：上次解析的 IP 缓存
 }
 
-type NodeConf struct {
-	Name  string `toml:"name"`
-	URL   string `toml:"url"`
-	Token string `toml:"token"`
-}
-
 type PanelConfig struct {
 	Auth struct {
 		Password     string `toml:"password"`
@@ -83,20 +76,6 @@ type PanelConfig struct {
 	Session struct {
 		Secret string `toml:"secret"`
 	} `toml:"session"`
-	Metrics struct {
-		Token string `toml:"token"`
-	} `toml:"metrics"`
-	Nodes []NodeConf `toml:"nodes"`
-}
-
-// 主控端实体
-type NodeSnapshot struct {
-	Name     string        `json:"name"`
-	URL      string        `json:"url"`
-	Online   bool          `json:"online"`
-	LastSeen time.Time     `json:"last_seen"`
-	Hostname string        `json:"hostname"`
-	Rules    []ForwardRule `json:"rules"`
 }
 
 // --- 全局变量 ---
@@ -107,9 +86,6 @@ var (
 	panelConfig PanelConfig
 	configPath  = "./config.toml"
 
-	nodesMu    sync.RWMutex
-	nodesCache []NodeSnapshot
-
 	// 流量统计：记录上次 nft counter 读数，用于计算增量
 	lastCounterSnap = make(map[string]uint64)
 
@@ -119,13 +95,6 @@ var (
 	loginLockUntil = make(map[string]time.Time)
 	maxAttempts    = 5
 	lockDuration   = 15 * time.Minute
-
-	// GFW 封锁检测：混合模式（定时探测 + 流量异常触发）
-	gfwMu               sync.RWMutex
-	gfwBlocked           bool
-	gfwTickCount         int // 距上次 GFW 探测的轮询次数
-	gfwCheckInterval     = 5 // 默认每 5 轮（5 分钟）探测一次
-	gfwPrevActiveRules   int // 上一轮有流量增量的规则数（用于异常检测）
 )
 
 // --- 输入校验 ---
@@ -259,19 +228,6 @@ func LoadPanelConfig() error {
 		}
 	}
 
-	// 自动生成 Metrics Token
-	if panelConfig.Metrics.Token == "" {
-		token, err := generateRandomSecret(32)
-		if err != nil {
-			return fmt.Errorf("生成 Metrics Token 失败: %v", err)
-		}
-		panelConfig.Metrics.Token = token
-		log.Println("已自动生成 Metrics Token")
-		if err := savePanelConfig(); err != nil {
-			return fmt.Errorf("保存配置失败: %v", err)
-		}
-	}
-
 	// 没有任何密码配置 → 提示
 	if panelConfig.Auth.PasswordHash == "" && panelConfig.Auth.Password == "" {
 		log.Println("警告: 未配置任何密码，请在 config.toml 中设置 [auth] password")
@@ -316,18 +272,6 @@ func savePanelConfig() error {
 
 	buf.WriteString("[session]\n")
 	buf.WriteString(fmt.Sprintf("secret = \"%s\"\n\n", panelConfig.Session.Secret))
-
-	buf.WriteString("[metrics]\n")
-	buf.WriteString(fmt.Sprintf("token = \"%s\"\n\n", panelConfig.Metrics.Token))
-
-	if len(panelConfig.Nodes) > 0 {
-		for _, n := range panelConfig.Nodes {
-			buf.WriteString("[[nodes]]\n")
-			buf.WriteString(fmt.Sprintf("name = \"%s\"\n", n.Name))
-			buf.WriteString(fmt.Sprintf("url = \"%s\"\n", n.URL))
-			buf.WriteString(fmt.Sprintf("token = \"%s\"\n\n", n.Token))
-		}
-	}
 
 	return os.WriteFile(configPath, buf.Bytes(), 0600)
 }
@@ -554,7 +498,7 @@ func verifyPassword(inputPassword string) bool {
 	return false
 }
 
-// --- 流量提取与主控拉取 ---
+// --- 流量提取 ---
 
 func parseNftCounters(out []byte) map[string]uint64 {
 	counterMap := make(map[string]uint64)
@@ -633,100 +577,6 @@ func checkForwardBlocked() bool {
 		return false // 有放行规则，不阻断
 	}
 	return true // FORWARD=DROP 且无 DNAT 放行 → 转发被阻断
-}
-
-// checkGFWBlocked 检测服务器 IP 是否被 GFW 封锁（双向阻断检测）
-// 原理：GFW 对 IP 的封锁是双向的 - 被封锁 IP 不仅国内无法访问，从该 IP 向国内发包也会被边境路由器丢弃
-// 调用时机：由混合模式控制 - 默认每 5 分钟定时调用一次，流量异常时立即触发
-// 方法：并发测试 TCP 连接国内公共 DNS（53端口）与国际 DNS 的成功率
-//
-//	国际至少有一个通 + 国内全部超时 -> 大概率被墙
-func checkGFWBlocked() bool {
-	type probeResult struct {
-		china bool
-		ok    bool
-	}
-
-	// 国内知名公共 DNS（TCP 53 端口）
-	cnEndpoints := []string{
-		"223.5.5.5:53",    // 阿里 DNS
-		"119.29.29.29:53", // 腾讯 DNSPod
-		"180.76.76.76:53", // 百度 DNS
-	}
-	// 国际端点：验证服务器自身出站网络正常
-	intlEndpoints := []string{
-		"8.8.8.8:53", // Google DNS
-		"1.1.1.1:53", // Cloudflare DNS
-	}
-
-	ch := make(chan probeResult, len(cnEndpoints)+len(intlEndpoints))
-
-	for _, ep := range cnEndpoints {
-		go func(addr string) {
-			conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
-			if err != nil {
-				ch <- probeResult{china: true, ok: false}
-			} else {
-				conn.Close()
-				ch <- probeResult{china: true, ok: true}
-			}
-		}(ep)
-	}
-	for _, ep := range intlEndpoints {
-		go func(addr string) {
-			conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
-			if err != nil {
-				ch <- probeResult{china: false, ok: false}
-			} else {
-				conn.Close()
-				ch <- probeResult{china: false, ok: true}
-			}
-		}(ep)
-	}
-
-	cnFail, intlFail := 0, 0
-	for i := 0; i < len(cnEndpoints)+len(intlEndpoints); i++ {
-		r := <-ch
-		if r.china && !r.ok {
-			cnFail++
-		}
-		if !r.china && !r.ok {
-			intlFail++
-		}
-	}
-
-	// 国际至少有一个通 + 国内全部不通 → 判定被墙
-	return intlFail < len(intlEndpoints) && cnFail == len(cnEndpoints)
-}
-
-func fetchNodeMetrics(n NodeConf) NodeSnapshot {
-	snap := NodeSnapshot{
-		Name:     n.Name,
-		URL:      n.URL,
-		Hostname: n.URL,
-		Online:   false,
-		LastSeen: time.Now(),
-	}
-	client := &http.Client{Timeout: 5 * time.Second}
-	req, err := http.NewRequest("GET", n.URL+"/api/metrics", nil)
-	if err != nil {
-		return snap
-	}
-	req.Header.Set("Authorization", "Bearer "+n.Token)
-	resp, err := client.Do(req)
-	if err != nil {
-		return snap
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == 200 {
-		if err := json.NewDecoder(resp.Body).Decode(&snap); err == nil {
-			snap.Online = true
-			snap.Name = n.Name
-			snap.URL = n.URL
-			snap.LastSeen = time.Now()
-		}
-	}
-	return snap
 }
 
 // --- 登录限流 ---
@@ -883,9 +733,6 @@ func main() {
 			currentDay := now.Day()
 			// 计算当月最后一天：下月1号往前推1天
 			lastDayOfMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Day()
-			// GFW 流量异常追踪：统计本轮有流量增量的规则数 和 目标可达的规则数
-			currActiveRules := 0
-			currReachableRules := 0
 
 			for i := range rules {
 				// 1. 动态域名解析与变更检测（DDNS/CDN 目标 IP 变化时自动热重载）
@@ -917,19 +764,12 @@ func main() {
 					}
 					rules[i].UsedBytes += thisDelta
 				}
-				// 追踪本轮有流量增量的规则数（用于 GFW 异常检测）
-				if thisDelta > 0 {
-					currActiveRules++
-				}
 
 				// 更新连通性状态：落地可达 且 FORWARD 链未被阻断
 				// 按规则 ID 匹配，避免拨测期间增删规则导致索引错位
 				if reachable, ok := reachMap[rules[i].ID]; ok {
 					r := reachable && !forwardBlocked
 					rules[i].Reachable = &r
-					if r {
-						currReachableRules++
-					}
 				}
 
 				// 账期自动重置：当月未重置过 且 今天已到达重置日（或月末兜底）
@@ -965,85 +805,9 @@ func main() {
 			}
 			// 更新 counter 快照，供下一轮增量计算
 			lastCounterSnap = counterMap
-			totalRulesThisCycle := len(rules)
 			mu.Unlock()
-
-			// === GFW 混合检测 ===
-			// 策略：默认每 5 分钟定时探测一次；流量异常时立即触发确认
-			// 流量异常判定：上轮 ≥3 条规则有流量 → 本轮全部归零 + 目标仍可达
-			gfwTickCount++
-			shouldCheckGFW := gfwTickCount >= gfwCheckInterval
-			if !shouldCheckGFW && gfwPrevActiveRules >= 3 && currActiveRules == 0 &&
-				currReachableRules > 0 && totalRulesThisCycle > 0 {
-				shouldCheckGFW = true
-				log.Printf("[GFW] 流量异常触发探测：上轮 %d 条规则有流量，本轮全部归零（目标可达 %d 条）",
-					gfwPrevActiveRules, currReachableRules)
-			}
-			gfwPrevActiveRules = currActiveRules
-
-			if shouldCheckGFW {
-				gfwTickCount = 0
-				isGFWBlocked := checkGFWBlocked()
-				gfwMu.Lock()
-				if isGFWBlocked != gfwBlocked {
-					if isGFWBlocked {
-						log.Println("[GFW] ⚠️ 检测到服务器 IP 可能被墙：国内 DNS 端点全部超时，国际端点正常")
-					} else {
-						log.Println("[GFW] ✓ 服务器 IP 国内连通性已恢复")
-					}
-					gfwBlocked = isGFWBlocked
-				}
-				gfwMu.Unlock()
-			}
 		}
 	}()
-
-	go func() {
-		ticker := time.NewTicker(60 * time.Second)
-		for ; true; <-ticker.C {
-			// 动态读取节点列表，运行时增删节点无需重启
-			nodesMu.RLock()
-			nodeList := make([]NodeConf, len(panelConfig.Nodes))
-			copy(nodeList, panelConfig.Nodes)
-			nodesMu.RUnlock()
-
-			if len(nodeList) == 0 {
-				continue
-			}
-
-			var wg sync.WaitGroup
-			snapshots := make([]NodeSnapshot, len(nodeList))
-			for i, node := range nodeList {
-				wg.Add(1)
-				go func(idx int, n NodeConf) {
-					defer wg.Done()
-					snapshots[idx] = fetchNodeMetrics(n)
-				}(i, node)
-			}
-			wg.Wait()
-			nodesMu.Lock()
-			nodesCache = snapshots
-			nodesMu.Unlock()
-		}
-	}()
-
-	// --- 探针拉取 ---
-	r.GET("/api/metrics", func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if panelConfig.Metrics.Token == "" || authHeader != "Bearer "+panelConfig.Metrics.Token {
-			c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
-			return
-		}
-		hostname, _ := os.Hostname()
-		mu.Lock()
-		snapRules := snapshotRules()
-		mu.Unlock()
-		c.JSON(200, gin.H{
-			"hostname":  hostname,
-			"timestamp": time.Now().Unix(),
-			"rules":     snapRules,
-		})
-	})
 
 	staticSubFS, _ := fs.Sub(staticFS, "static")
 	r.StaticFS("/static", http.FS(staticSubFS))
@@ -1130,14 +894,7 @@ func main() {
 				end = total
 			}
 
-			gfwMu.RLock()
-			isGFW := gfwBlocked
-			gfwMu.RUnlock()
-			c.JSON(200, gin.H{
-				"rules":       rules[start:end],
-				"total":       total,
-				"gfw_blocked": isGFW,
-			})
+			c.JSON(200, gin.H{"rules": rules[start:end], "total": total})
 		})
 
 		// 添加单条规则
@@ -1369,73 +1126,6 @@ func main() {
 			c.JSON(200, gin.H{"message": "配额已更新"})
 		})
 
-		// 大盘探针汇总
-		api.GET("/api/nodes/overview", func(c *gin.Context) {
-			nodesMu.RLock()
-			defer nodesMu.RUnlock()
-			c.JSON(200, gin.H{"nodes": nodesCache})
-		})
-
-		// --- 节点管理 CRUD ---
-		api.GET("/api/nodes/manage", func(c *gin.Context) {
-			nodesMu.RLock()
-			defer nodesMu.RUnlock()
-			c.JSON(200, gin.H{"nodes": panelConfig.Nodes})
-		})
-
-		api.POST("/api/nodes/manage", func(c *gin.Context) {
-			var input struct {
-				Name  string `json:"name"`
-				URL   string `json:"url"`
-				Token string `json:"token"`
-			}
-			if err := c.ShouldBindJSON(&input); err != nil {
-				c.JSON(400, gin.H{"error": "无效输入"})
-				return
-			}
-			if input.Name == "" || input.URL == "" || input.Token == "" {
-				c.JSON(400, gin.H{"error": "节点名称、地址和 Token 不能为空"})
-				return
-			}
-			nodesMu.Lock()
-			panelConfig.Nodes = append(panelConfig.Nodes, NodeConf{
-				Name:  input.Name,
-				URL:   input.URL,
-				Token: input.Token,
-			})
-			nodesMu.Unlock()
-			if err := savePanelConfig(); err != nil {
-				c.JSON(500, gin.H{"error": "保存配置失败: " + err.Error()})
-				return
-			}
-			log.Printf("新增监控节点: %s (%s)", input.Name, input.URL)
-			c.JSON(200, gin.H{"message": "节点已添加"})
-		})
-
-		api.DELETE("/api/nodes/manage/:idx", func(c *gin.Context) {
-			idxStr := c.Param("idx")
-			idx, err := strconv.Atoi(idxStr)
-			if err != nil {
-				c.JSON(400, gin.H{"error": "节点索引无效"})
-				return
-			}
-			nodesMu.Lock()
-			if idx < 0 || idx >= len(panelConfig.Nodes) {
-				nodesMu.Unlock()
-				c.JSON(404, gin.H{"error": "节点不存在"})
-				return
-			}
-			removed := panelConfig.Nodes[idx]
-			panelConfig.Nodes = append(panelConfig.Nodes[:idx], panelConfig.Nodes[idx+1:]...)
-			nodesMu.Unlock()
-			if err := savePanelConfig(); err != nil {
-				c.JSON(500, gin.H{"error": "保存配置失败: " + err.Error()})
-				return
-			}
-			log.Printf("删除监控节点: %s (%s)", removed.Name, removed.URL)
-			c.JSON(200, gin.H{"message": "节点已删除"})
-		})
-
 		// 编辑规则（修改本机端口、目标地址、目标端口、备注、配额、重置日）
 		api.PUT("/api/rules/:id", func(c *gin.Context) {
 			id := c.Param("id")
@@ -1568,10 +1258,7 @@ func main() {
 			if err == nil {
 				status = "运行中"
 			}
-			gfwMu.RLock()
-			isGFW := gfwBlocked
-			gfwMu.RUnlock()
-			c.JSON(200, gin.H{"status": status, "gfw_blocked": isGFW})
+			c.JSON(200, gin.H{"status": status})
 		})
 
 		// 登出
@@ -1625,139 +1312,6 @@ func main() {
 
 			log.Printf("密码已修改 (来自 IP: %s)", c.ClientIP())
 			c.JSON(200, gin.H{"message": "密码修改成功"})
-		})
-
-		// 查看已部署节点
-		api.GET("/api/nodes", func(c *gin.Context) {
-			nodes := []gin.H{}
-
-			// 检测 Xray Reality
-			xrayConfigPath := "/usr/local/etc/xray/config.json"
-			xrayClientPath := "/usr/local/etc/xray/reclient.json"
-			if _, err := os.Stat(xrayConfigPath); err == nil {
-				node := gin.H{
-					"type":   "Xray Reality",
-					"status": "未运行",
-				}
-
-				// 检查服务状态
-				cmd := exec.Command("systemctl", "is-active", "--quiet", "xray")
-				if cmd.Run() == nil {
-					node["status"] = "运行中"
-				}
-
-				// 读取服务端配置，提取端口和 UUID
-				if data, err := os.ReadFile(xrayConfigPath); err == nil {
-					var cfg map[string]interface{}
-					if json.Unmarshal(data, &cfg) == nil {
-						if inbounds, ok := cfg["inbounds"].([]interface{}); ok && len(inbounds) > 0 {
-							if ib, ok := inbounds[0].(map[string]interface{}); ok {
-								if port, ok := ib["port"].(float64); ok {
-									node["port"] = int(port)
-								}
-								// 提取 UUID
-								if settings, ok := ib["settings"].(map[string]interface{}); ok {
-									if clients, ok := settings["clients"].([]interface{}); ok && len(clients) > 0 {
-										if client, ok := clients[0].(map[string]interface{}); ok {
-											node["uuid"] = client["id"]
-											node["flow"] = client["flow"]
-										}
-									}
-								}
-								// 提取 Reality 参数
-								if ss, ok := ib["streamSettings"].(map[string]interface{}); ok {
-									node["network"] = ss["network"]
-									node["security"] = ss["security"]
-									if rs, ok := ss["realitySettings"].(map[string]interface{}); ok {
-										node["dest"] = rs["dest"]
-										if sn, ok := rs["serverNames"].([]interface{}); ok && len(sn) > 0 {
-											node["sni"] = sn[0]
-										}
-										if sids, ok := rs["shortIds"].([]interface{}); ok && len(sids) > 0 {
-											node["short_id"] = sids[0]
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-
-				// 读取客户端配置，提取连接链接和公钥
-				if data, err := os.ReadFile(xrayClientPath); err == nil {
-					var clientCfg map[string]interface{}
-					if json.Unmarshal(data, &clientCfg) == nil {
-						if link, ok := clientCfg["连接链接"].(string); ok {
-							node["link"] = link
-						}
-						if params, ok := clientCfg["配置参数"].(map[string]interface{}); ok {
-							node["public_key"] = params["公钥"]
-							node["address"] = params["地址"]
-						}
-					}
-				}
-
-				nodes = append(nodes, node)
-			}
-
-			// 检测 Shadowsocks Rust
-			ssConfigPath := "/etc/shadowsocks/config.json"
-			if _, err := os.Stat(ssConfigPath); err == nil {
-				node := gin.H{
-					"type":   "Shadowsocks",
-					"status": "未运行",
-				}
-
-				// 检查服务状态
-				cmd := exec.Command("systemctl", "is-active", "--quiet", "shadowsocks")
-				if cmd.Run() == nil {
-					node["status"] = "运行中"
-				}
-
-				// 读取配置
-				if data, err := os.ReadFile(ssConfigPath); err == nil {
-					var cfg map[string]interface{}
-					if json.Unmarshal(data, &cfg) == nil {
-						if port, ok := cfg["server_port"].(float64); ok {
-							node["port"] = int(port)
-						}
-						node["password"] = cfg["password"]
-						node["method"] = cfg["method"]
-					}
-				}
-
-				// 获取服务器 IP 用于生成 SS 链接
-				// 优先获取 IPv4 地址，失败再回退 IPv6
-				ipOut, err := exec.Command("curl", "-s", "-4", "--max-time", "3", "ip.sb").Output()
-				if err != nil || len(strings.TrimSpace(string(ipOut))) == 0 {
-					ipOut, err = exec.Command("curl", "-s", "--max-time", "3", "ip.sb").Output()
-				}
-				if err == nil {
-					serverIP := strings.TrimSpace(string(ipOut))
-					if serverIP != "" {
-						node["address"] = serverIP
-						// 生成 SS 链接（格式: ss://base64(method:password)@host:port#name）
-						if pwd, ok := node["password"].(string); ok {
-							if method, ok := node["method"].(string); ok {
-								if port, ok := node["port"].(int); ok {
-									userInfo := fmt.Sprintf("%s:%s", method, pwd)
-									encoded := base64.StdEncoding.EncodeToString([]byte(userInfo))
-									// IPv6 地址需要方括号包裹，否则客户端无法区分地址和端口
-									host := serverIP
-									if strings.Contains(serverIP, ":") {
-										host = "[" + serverIP + "]"
-									}
-									node["link"] = fmt.Sprintf("ss://%s@%s:%d#SS-%d", encoded, host, port, port)
-								}
-							}
-						}
-					}
-				}
-
-				nodes = append(nodes, node)
-			}
-
-			c.JSON(200, gin.H{"nodes": nodes})
 		})
 	}
 

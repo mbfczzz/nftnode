@@ -15,13 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Service
             'svc.start': '启动', 'svc.stop': '停止', 'svc.restart': '重启',
             // Buttons
-            'btn.refresh': '刷新', 'btn.cancel': '取消', 'btn.save': '保存',
-            // Overview
-            'overview.title': '节点总览',
-            'overview.node': '节点名', 'overview.online': '在线', 'overview.rules': '规则数',
-            'overview.used': '总已用', 'overview.quota': '总配额', 'overview.lastUpdate': '最后更新',
-            // Nodes
-            'nodes.title': '已部署节点',
+            'btn.cancel': '取消', 'btn.save': '保存',
             // Rules
             'rules.title': '转发规则列表',
             'rules.localPort': '本机端口', 'rules.ipType': 'IP类型',
@@ -61,13 +55,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'toast.batchEmpty': '请输入规则',
             'toast.batchFormat': '格式错误: {line}',
             'toast.batchNone': '未解析到有效规则',
-            'toast.copied': '连接链接已复制',
-            'toast.nodeAdded': '节点已添加',
-            'toast.nodeDeleted': '节点已删除',
-            'toast.nodeEmpty': '节点名称、地址和 Token 不能为空',
             'toast.confirmDelete': '确定删除此转发规则？',
             'toast.confirmReset': '确定清零该端口的已用流量并恢复转发？',
-            'toast.confirmDeleteNode': '确定删除此监控节点？',
             // Table misc
             'rules.total': '共 {n} 条',
             'rules.empty': '暂无转发规则',
@@ -77,39 +66,16 @@ document.addEventListener('DOMContentLoaded', () => {
             'traffic.unlimited': '不限', 'traffic.unlimitedQuota': '不限额',
             // Status text
             'status.unknown': '未知',
-            // Nodes
-            'nodes.empty': '暂无已部署节点（可通过脚本菜单安装 Xray Reality 或 Shadowsocks）',
-            'nodes.fetchFail': '获取节点信息失败',
-            'nodes.refreshing': '刷新中...',
-            'nodes.copyHint': '点击复制',
-            'overview.empty': '暂无监控节点',
-            'overview.online': '在线', 'overview.offline': '离线',
-            'overview.refreshing': '刷新中...',
             'pwd.changing': '修改中...',
             // IPv4/IPv6 切换
             'proto.v4Label': '目标 IPv4 地址', 'proto.v4Ph': '如: 6.6.6.6 或 1.2.3.4',
             'proto.v6Label': '目标 IPv6 地址', 'proto.v6Ph': '如: 2001:db8::1 (自动添加方括号)',
-            // Node detail sub-table
-            'detail.suspended': '封停', 'detail.active': '正常',
-            // Node manage
-            'nodeManage.title': '管理监控节点',
-            'nodeManage.name': '节点名称', 'nodeManage.url': '节点地址',
-            'nodeManage.token': 'Metrics Token', 'nodeManage.add': '添加节点',
-            'nodeManage.empty': '未配置监控节点，在下方添加被控服务器',
-            'nodeManage.fetchFail': '获取节点列表失败',
-            // GFW 封锁检测
-            'gfw.blocked': '⚠️ 检测到服务器 IP 可能被墙（无法连接国内网络），所有中转链路已中断',
-            'gfw.statusBlocked': '入口被墙',
         },
         en: {
             'header.title': 'nftables Forward Manager',
             'header.logout': 'Logout',
             'svc.start': 'Start', 'svc.stop': 'Stop', 'svc.restart': 'Restart',
-            'btn.refresh': 'Refresh', 'btn.cancel': 'Cancel', 'btn.save': 'Save',
-            'overview.title': 'Node Overview',
-            'overview.node': 'Node', 'overview.online': 'Online', 'overview.rules': 'Rules',
-            'overview.used': 'Used', 'overview.quota': 'Quota', 'overview.lastUpdate': 'Last Update',
-            'nodes.title': 'Deployed Nodes',
+            'btn.cancel': 'Cancel', 'btn.save': 'Save',
             'rules.title': 'Forward Rules',
             'rules.localPort': 'Local Port', 'rules.ipType': 'IP Type',
             'rules.targetAddr': 'Target Addr', 'rules.targetPort': 'Target Port',
@@ -141,13 +107,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'toast.batchEmpty': 'Please enter rules',
             'toast.batchFormat': 'Format error: {line}',
             'toast.batchNone': 'No valid rules parsed',
-            'toast.copied': 'Link copied',
-            'toast.nodeAdded': 'Node added',
-            'toast.nodeDeleted': 'Node deleted',
-            'toast.nodeEmpty': 'Node name, URL and Token are required',
             'toast.confirmDelete': 'Delete this forward rule?',
             'toast.confirmReset': 'Reset traffic and resume forwarding?',
-            'toast.confirmDeleteNode': 'Delete this monitor node?',
             'rules.total': '{n} rules',
             'rules.empty': 'No forward rules',
             'rules.fetchFail': 'Failed to load rules',
@@ -155,25 +116,9 @@ document.addEventListener('DOMContentLoaded', () => {
             'page.info': 'Page {cur} / {total}',
             'traffic.unlimited': 'Unlimited', 'traffic.unlimitedQuota': 'Unlimited',
             'status.unknown': 'Unknown',
-            'nodes.empty': 'No deployed nodes (install Xray Reality or Shadowsocks via script menu)',
-            'nodes.fetchFail': 'Failed to load node info',
-            'nodes.refreshing': 'Refreshing...',
-            'nodes.copyHint': 'Click to copy',
-            'overview.empty': 'No monitoring nodes',
-            'overview.online': 'Online', 'overview.offline': 'Offline',
-            'overview.refreshing': 'Refreshing...',
             'pwd.changing': 'Saving...',
-            'nodeManage.title': 'Manage Monitor Nodes',
-            'nodeManage.name': 'Node Name', 'nodeManage.url': 'Node URL',
-            'nodeManage.token': 'Metrics Token', 'nodeManage.add': 'Add Node',
-            'nodeManage.empty': 'No monitor nodes configured; add a managed server below',
-            'nodeManage.fetchFail': 'Failed to load node list',
             'proto.v4Label': 'Target IPv4 Address', 'proto.v4Ph': 'e.g. 6.6.6.6 or 1.2.3.4',
             'proto.v6Label': 'Target IPv6 Address', 'proto.v6Ph': 'e.g. 2001:db8::1 (brackets added automatically)',
-            'detail.suspended': 'Suspended', 'detail.active': 'Active',
-            // GFW detection
-            'gfw.blocked': '⚠️ Server IP may be blocked by GFW (cannot reach Chinese network), all relay chains broken',
-            'gfw.statusBlocked': 'GFW Blocked',
         }
     };
 
@@ -217,9 +162,6 @@ document.addEventListener('DOMContentLoaded', () => {
         updateStatus();
         ruleCount.textContent = t('rules.total', {n: totalRules});
         setProtocol(selectedProto);
-        fetchNodes();
-        fetchOverview();
-        fetchNodeManage();
     }
 
     // --- DOM 引用 ---
@@ -242,7 +184,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let totalRules = 0;
     let allRules = [];
     let selectedProto = 'ipv4'; // 当前选中的协议
-    let gfwBlocked = false;     // GFW 封锁状态（从后端定时同步）
 
     // --- 工具函数 ---
     function formatBytes(bytes) {
@@ -300,22 +241,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusText.textContent = t('status.stopped');
             }
 
-            // GFW 封锁检测：后端通过对比国内外 DNS 端点连通性判断是否被墙
-            const wasBlocked = gfwBlocked;
-            gfwBlocked = data.gfw_blocked === true;
-            const gfwBanner = document.getElementById('gfwBanner');
-            if (gfwBanner) {
-                if (gfwBlocked) {
-                    gfwBanner.hidden = false;
-                    gfwBanner.textContent = t('gfw.blocked');
-                } else {
-                    gfwBanner.hidden = true;
-                }
-            }
-            // GFW 状态变化时刷新规则列表以更新状态列显示
-            if (wasBlocked !== gfwBlocked && allRules.length > 0) {
-                renderRules();
-            }
         } catch {
             statusBadge.className = 'status-badge stopped';
             statusText.textContent = t('status.unknown');
@@ -333,8 +258,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             totalRules = data.total || 0;
             allRules = Array.isArray(data.rules) ? data.rules : [];
-            // 同步 GFW 状态（规则接口也返回，避免首次加载时状态闪烁）
-            if (data.gfw_blocked !== undefined) gfwBlocked = data.gfw_blocked === true;
             ruleCount.textContent = t('rules.total', {n: totalRules});
             renderRules();
         } catch (e) {
@@ -385,12 +308,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 trafficHtml = `<div class="traffic-text">${formatBytes(usedBytes)} / ${t('traffic.unlimited')}</div>`;
             }
 
-            // 状态标签（四态：入口被墙/已封停/不通/正常）
+            // 状态标签（三态：已封停/不通/正常）
             let statusTag;
-            if (gfwBlocked && !suspended) {
-                // GFW 封锁时，非封停规则显示“入口被墙”（封停规则仍显示“已封停”以保留配额信息）
-                statusTag = `<span class="status-tag gfw-blocked">${t('gfw.statusBlocked')}</span>`;
-            } else if (suspended) {
+            if (suspended) {
                 statusTag = `<span class="status-tag suspended">${t('status.suspended')}</span>`;
             } else if (rule.reachable === false) {
                 statusTag = `<span class="status-tag unreachable">${t('status.unreachable')}</span>`;
@@ -752,269 +672,6 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchRules();
     });
 
-    // --- 节点查看（本地代理） ---
-    const nodesContainer = document.getElementById('nodesContainer');
-
-    async function fetchNodes() {
-        try {
-            const res = await fetch('/api/nodes');
-            if (!res.ok) throw new Error('fail');
-            const data = await res.json();
-            renderNodes(data.nodes || []);
-        } catch (e) {
-            nodesContainer.innerHTML = `<div class="nodes-empty">${t('nodes.fetchFail')}</div>`;
-        }
-    }
-
-    function renderNodes(nodes) {
-        if (nodes.length === 0) {
-            nodesContainer.innerHTML = `<div class="nodes-empty">${t('nodes.empty')}</div>`;
-            return;
-        }
-
-        nodesContainer.innerHTML = nodes.map(node => {
-            const statusClass = node.status === '运行中' ? 'running' : 'stopped';
-            let infoRows = '';
-            let icon = '';
-
-            if (node.type === 'Xray Reality') {
-                icon = '<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>';
-                infoRows = `
-                    <span class="label">协议</span><span class="value">VLESS + Reality</span>
-                    <span class="label">地址</span><span class="value">${node.address || '-'}</span>
-                    <span class="label">端口</span><span class="value">${node.port || '-'}</span>
-                    <span class="label">UUID</span><span class="value">${node.uuid || '-'}</span>
-                    <span class="label">流控</span><span class="value">${node.flow || '-'}</span>
-                    <span class="label">传输</span><span class="value">${node.network || '-'}</span>
-                    <span class="label">安全</span><span class="value">${node.security || '-'}</span>
-                    <span class="label">SNI</span><span class="value">${node.sni || '-'}</span>
-                    <span class="label">公钥</span><span class="value">${node.public_key || '-'}</span>
-                    <span class="label">Short ID</span><span class="value">${node.short_id || '-'}</span>
-                `;
-            } else if (node.type === 'Shadowsocks') {
-                icon = '<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>';
-                infoRows = `
-                    <span class="label">协议</span><span class="value">Shadowsocks</span>
-                    <span class="label">地址</span><span class="value">${node.address || '-'}</span>
-                    <span class="label">端口</span><span class="value">${node.port || '-'}</span>
-                    <span class="label">密码</span><span class="value">${node.password || '-'}</span>
-                    <span class="label">加密方式</span><span class="value">${node.method || '-'}</span>
-                `;
-            }
-
-            const linkHtml = node.link
-                ? `<div class="node-link" data-link="${encodeURIComponent(node.link)}" title="${t('nodes.copyHint')}">
-                       ${node.link}
-                       <span class="copy-hint">${t('nodes.copyHint')}</span>
-                   </div>`
-                : '';
-
-            return `<div class="node-card">
-                <div class="node-header">
-                    <div class="node-type">${icon} ${node.type}</div>
-                    <span class="node-status ${statusClass}">${node.status}</span>
-                </div>
-                <div class="node-info">${infoRows}</div>
-                ${linkHtml}
-            </div>`;
-        }).join('');
-
-        // 点击复制链接
-        nodesContainer.querySelectorAll('.node-link').forEach(el => {
-            el.addEventListener('click', () => {
-                const link = decodeURIComponent(el.dataset.link);
-                navigator.clipboard.writeText(link).then(() => {
-                    showToast(t('toast.copied'), 'success');
-                }).catch(() => {
-                    // fallback
-                    const ta = document.createElement('textarea');
-                    ta.value = link;
-                    document.body.appendChild(ta);
-                    ta.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(ta);
-                    showToast(t('toast.copied'), 'success');
-                });
-            });
-        });
-    }
-
-    document.getElementById('refreshNodesBtn').addEventListener('click', () => {
-        nodesContainer.innerHTML = `<div class="nodes-empty">${t('nodes.refreshing')}</div>`;
-        fetchNodes();
-    });
-
-    // --- 节点总览（主控大盘） ---
-    const overviewCard = document.getElementById('overviewCard');
-    const overviewBody = document.getElementById('overviewBody');
-
-    async function fetchOverview() {
-        try {
-            const res = await fetch('/api/nodes/overview');
-            if (!res.ok) throw new Error('fetch failed');
-            const data = await res.json();
-            const nodes = data.nodes || [];
-            if (nodes.length === 0) {
-                // 没有配置远程被控节点，则隐藏总览板块
-                overviewCard.hidden = true;
-                return;
-            }
-            overviewCard.hidden = false;
-            renderOverview(nodes);
-        } catch (e) {
-            // 如果接口报错，静默隐藏
-            overviewCard.hidden = true;
-        }
-    }
-
-    function renderOverview(nodes) {
-        overviewBody.innerHTML = nodes.map((node, idx) => {
-            const onlineClass = node.online ? 'on' : 'off';
-            const onlineText = node.online ? t('overview.online') : t('overview.offline');
-            const rulesCount = (node.rules || []).length;
-            const totalUsed = (node.rules || []).reduce((s, r) => s + (r.used_bytes || 0), 0);
-            const totalQuota = (node.rules || []).reduce((s, r) => s + (r.quota_gb || 0), 0);
-            const quotaText = totalQuota > 0 ? `${totalQuota} GB` : t('traffic.unlimited');
-            const lastSeen = node.last_seen ? new Date(node.last_seen).toLocaleTimeString() : '-';
-            const rowStyle = node.online ? '' : 'style="color:var(--danger); opacity:0.7"';
-
-            return `<tr data-node-idx="${idx}" ${rowStyle}>
-                <td><strong>${node.name || node.hostname || node.url}</strong></td>
-                <td><span class="online-dot ${onlineClass}"></span>${onlineText}</td>
-                <td>${rulesCount}</td>
-                <td>${formatBytes(totalUsed)}</td>
-                <td>${quotaText}</td>
-                <td>${lastSeen}</td>
-            </tr>`;
-        }).join('');
-
-        // 点击展开节点明细
-        overviewBody.querySelectorAll('tr[data-node-idx]').forEach(tr => {
-            tr.addEventListener('click', () => {
-                const idx = parseInt(tr.dataset.nodeIdx);
-                const existing = tr.nextElementSibling;
-                if (existing && existing.classList.contains('node-detail-row')) {
-                    existing.remove();
-                    return;
-                }
-                const node = nodes[idx];
-                const rules = node.rules || [];
-                if (rules.length === 0) return;
-
-                const detailHtml = `<tr class="node-detail-row"><td colspan="6">
-                    <div class="node-detail-content">
-                        <table>
-                            <tr><th>端口</th><th>目标</th><th>已用</th><th>配额</th><th>状态</th></tr>
-                            ${rules.map(r => {
-                                const statusText = r.enabled === false ? `<span class="status-tag suspended">${t('detail.suspended')}</span>` : `<span class="status-tag active">${t('detail.active')}</span>`;
-                                const quota = r.quota_gb > 0 ? `${r.quota_gb} GB` : t('traffic.unlimited');
-                                return `<tr>
-                                    <td>${r.local_port}</td>
-                                    <td>${r.remote_addr}:${r.remote_port}</td>
-                                    <td>${formatBytes(r.used_bytes || 0)}</td>
-                                    <td>${quota}</td>
-                                    <td>${statusText}</td>
-                                </tr>`;
-                            }).join('')}
-                        </table>
-                    </div>
-                </td></tr>`;
-                tr.insertAdjacentHTML('afterend', detailHtml);
-            });
-        });
-    }
-
-    const refreshOverviewBtn = document.getElementById('refreshOverviewBtn');
-    if (refreshOverviewBtn) {
-        refreshOverviewBtn.addEventListener('click', () => {
-            overviewBody.innerHTML = `<tr><td colspan="6" class="overview-empty">${t('overview.refreshing')}</td></tr>`;
-            fetchOverview();
-        });
-    }
-
-    // --- 节点管理 CRUD ---
-    const nodeManageList = document.getElementById('nodeManageList');
-
-    async function fetchNodeManage() {
-        try {
-            const res = await fetch('/api/nodes/manage');
-            if (!res.ok) throw new Error('fail');
-            const data = await res.json();
-            renderNodeManage(data.nodes || []);
-            // 有被控节点配置时，同步显示节点总览大盘
-            if (data.nodes && data.nodes.length > 0) {
-                overviewCard.hidden = false;
-                fetchOverview();
-            } else {
-                overviewCard.hidden = true;
-            }
-        } catch (e) {
-            nodeManageList.innerHTML = `<div style="color:var(--text-muted);font-size:13px">${t('nodeManage.fetchFail')}</div>`;
-        }
-    }
-
-    function renderNodeManage(nodes) {
-        if (nodes.length === 0) {
-            nodeManageList.innerHTML = `<div style="color:var(--text-muted);font-size:13px">${t('nodeManage.empty')}</div>`;
-            return;
-        }
-        nodeManageList.innerHTML = nodes.map((n, idx) => {
-            return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
-                <strong style="flex:1;font-size:13px">${n.name}</strong>
-                <span style="flex:2;font-size:12px;color:var(--text-secondary);font-family:monospace">${n.url}</span>
-                <span style="flex:1;font-size:12px;color:var(--text-muted);font-family:monospace;overflow:hidden;text-overflow:ellipsis" title="${n.token}">${n.token.substring(0,12)}...</span>
-                <button class="btn btn-danger btn-sm" data-del-node="${idx}">${t('rules.delete')}</button>
-            </div>`;
-        }).join('');
-
-        nodeManageList.querySelectorAll('[data-del-node]').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const idx = btn.dataset.delNode;
-                if (!confirm(t('toast.confirmDeleteNode'))) return;
-                try {
-                    const res = await fetch(`/api/nodes/manage/${idx}`, { method: 'DELETE' });
-                    if (!res.ok) {
-                        const d = await res.json();
-                        throw new Error(d.error || 'Delete failed');
-                    }
-                    showToast(t('toast.nodeDeleted'), 'success');
-                    fetchNodeManage();
-                    fetchOverview();
-                } catch (err) {
-                    showToast(err.message, 'error');
-                }
-            });
-        });
-    }
-
-    document.getElementById('addNodeBtn').addEventListener('click', async () => {
-        const name = document.getElementById('nodeManageName').value.trim();
-        const url = document.getElementById('nodeManageURL').value.trim();
-        const token = document.getElementById('nodeManageToken').value.trim();
-        if (!name || !url || !token) {
-            showToast(t('toast.nodeEmpty'), 'error');
-            return;
-        }
-        try {
-            const res = await fetch('/api/nodes/manage', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, url, token })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Add failed');
-            showToast(t('toast.nodeAdded'), 'success');
-            document.getElementById('nodeManageName').value = '';
-            document.getElementById('nodeManageURL').value = '';
-            document.getElementById('nodeManageToken').value = '';
-            fetchNodeManage();
-            // 60秒后自动拉取总览
-            setTimeout(fetchOverview, 2000);
-        } catch (e) {
-            showToast(e.message, 'error');
-        }
-    });
-
     // --- 初始化 ---
     // i18n: 绑定语言切换按钮并应用当前语言
     const langToggleBtn = document.getElementById('langToggleBtn');
@@ -1023,12 +680,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     fetchRules();
     updateStatus();
-    fetchNodes();
-    fetchOverview();
-    fetchNodeManage();
 
     // 定时刷新状态与流量
     setInterval(updateStatus, 15000);
     setInterval(fetchRules, 60000);    // 每60秒刷新规则（含流量数据）
-    setInterval(fetchOverview, 60000); // 每60秒刷新节点总览
 });
