@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'backup.sectionLabel': '备用线路（可选，主线路不通时按顺序自动切换，恢复后自动切回）',
             'backup.add': '添加备用线路', 'backup.addrPh': '备用地址 IPv4/IPv6/域名', 'backup.portPh': '端口',
             'line.primary': '主', 'line.backupN': '备{n}',
+            'test.btn': '测试', 'test.testing': '测试中…', 'test.fail': '不通', 'test.ok': '通',
             // Batch
             'batch.title': '批量添加转发规则', 'batch.submit': '批量添加',
             // Edit modal
@@ -94,6 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'backup.sectionLabel': 'Backup lines (optional, auto-failover in order, auto switch back on recovery)',
             'backup.add': 'Add Backup Line', 'backup.addrPh': 'Backup addr IPv4/IPv6/domain', 'backup.portPh': 'Port',
             'line.primary': 'Primary', 'line.backupN': 'Backup{n}',
+            'test.btn': 'Test', 'test.testing': 'Testing…', 'test.fail': 'Failed', 'test.ok': 'OK',
             'batch.title': 'Batch Add Rules', 'batch.submit': 'Batch Add',
             'edit.title': 'Edit Forward Rule',
             'pwd.title': 'Change Password', 'pwd.confirm': 'Confirm',
@@ -299,7 +301,17 @@ document.addEventListener('DOMContentLoaded', () => {
             `<span class="backup-idx"></span>` +
             `<input type="text" class="backup-addr" placeholder="${escAttr(t('backup.addrPh'))}" value="${escAttr(addr)}">` +
             `<input type="number" class="backup-port" placeholder="${escAttr(t('backup.portPh'))}" min="1" max="65535" value="${escAttr(port)}">` +
-            `<button type="button" class="btn btn-danger btn-sm backup-remove" title="删除">✕</button>`;
+            `<button type="button" class="btn-test backup-test">${escAttr(t('test.btn'))}</button>` +
+            `<button type="button" class="btn btn-danger btn-sm backup-remove" title="删除">✕</button>` +
+            `<span class="test-result backup-test-result"></span>`;
+        const addrI = row.querySelector('.backup-addr');
+        const portI = row.querySelector('.backup-port');
+        const resEl = row.querySelector('.backup-test-result');
+        row.querySelector('.backup-test').addEventListener('click', (e) => {
+            let a = addrI.value.trim();
+            if (a.includes(':') && !a.startsWith('[')) a = `[${a}]`;
+            doTest(a, portI.value, resEl, e.currentTarget);
+        });
         row.querySelector('.backup-remove').addEventListener('click', () => {
             row.remove();
             renumberBackups(containerId);
@@ -324,6 +336,59 @@ document.addEventListener('DOMContentLoaded', () => {
     if (addBackupBtn) addBackupBtn.addEventListener('click', () => addBackupRow('backupList'));
     const editAddBackupBtn = document.getElementById('editAddBackupBtn');
     if (editAddBackupBtn) editAddBackupBtn.addEventListener('click', () => addBackupRow('editBackupList'));
+
+    // ---- 即时测试落地连通性 ----
+    async function doTest(addr, port, resultEl, btnEl) {
+        if (!resultEl) return;
+        addr = (addr || '').trim();
+        port = (port || '').trim();
+        if (!addr || !port) {
+            resultEl.className = 'test-result fail';
+            resultEl.textContent = '✗ ' + (currentLang === 'zh' ? '请填地址和端口' : 'addr & port required');
+            return;
+        }
+        resultEl.className = 'test-result testing';
+        resultEl.textContent = t('test.testing');
+        resultEl.title = '';
+        if (btnEl) btnEl.disabled = true;
+        try {
+            const res = await fetch('/api/test', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({addr, port})
+            });
+            const d = await res.json();
+            if (!res.ok) throw new Error(d.error || 'test failed');
+            if (d.ok) {
+                resultEl.className = 'test-result ok';
+                resultEl.textContent = `✓ ${d.latency_ms}ms` + (d.resolved_ip ? ` · ${d.resolved_ip}` : '');
+                resultEl.title = '';
+            } else {
+                resultEl.className = 'test-result fail';
+                resultEl.textContent = '✗ ' + t('test.fail');
+                resultEl.title = d.error || '';
+            }
+        } catch (e) {
+            resultEl.className = 'test-result fail';
+            resultEl.textContent = '✗ ' + t('test.fail');
+            resultEl.title = e.message;
+        } finally {
+            if (btnEl) btnEl.disabled = false;
+        }
+    }
+
+    // 主目标地址的测试按钮（添加表单 / 编辑模态框）
+    function wireMainTest(btnId, addrId, portId, resultId) {
+        const btn = document.getElementById(btnId);
+        if (!btn) return;
+        btn.addEventListener('click', (e) => {
+            let a = document.getElementById(addrId).value.trim();
+            if (a.includes(':') && !a.startsWith('[')) a = `[${a}]`;
+            doTest(a, document.getElementById(portId).value, document.getElementById(resultId), e.currentTarget);
+        });
+    }
+    wireMainTest('testMainBtn', 'remoteAddr', 'remotePort', 'testMainResult');
+    wireMainTest('editTestMainBtn', 'editRemoteAddr', 'editRemotePort', 'editTestMainResult');
 
     function renderRules() {
         if (allRules.length === 0) {
@@ -382,18 +447,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusTag += `<span class="status-tag" style="background:#fef3c7;color:#92400e;margin-left:4px">${t('status.onBackupN', {n: activeLine})}</span>`;
             }
 
-            // 线路列表：主 + 各备用，每条带状态点（🟢通/🔴断/⚪检测中），当前生效线路高亮 ◀
+            // 线路列表：主 + 各备用，每条带状态点（🟢通/🔴断/⚪检测中）、标签、测试按钮，当前生效线路高亮 ◀
             const lines = [{label: t('line.primary'), a: addr, p: rule.remote_port, up: rule.primary_up}]
                 .concat(backups.map((b, i) => ({label: t('line.backupN', {n: i + 1}), a: b.addr, p: b.port, up: b.up})));
             const dotOf = (up) => up === true ? '🟢' : up === false ? '🔴' : '⚪';
-            let addrCell;
-            if (lines.length === 1) {
-                addrCell = addr; // 无备用，保持简洁
-            } else {
-                addrCell = `<div class="line-list">` + lines.map((ln, i) =>
-                    `<div class="line-item ${i === activeLine ? 'active' : 'inactive'}">${dotOf(ln.up)} ${ln.label}: ${ln.a}:${ln.p}${i === activeLine ? ' ◀' : ''}</div>`
-                ).join('') + `</div>`;
-            }
+            const addrCell = `<div class="line-list">` + lines.map((ln, i) => {
+                const active = i === activeLine;
+                return `<div class="line-item ${active ? 'active' : 'inactive'}">` +
+                    `<span class="line-dot">${dotOf(ln.up)}</span>` +
+                    `<span class="line-tag">${ln.label}</span>` +
+                    `<span class="line-addr">${ln.a}:${ln.p}</span>` +
+                    (active ? `<span class="line-active-mark">◀</span>` : '') +
+                    `<button class="btn-test" data-action="test-line" data-addr="${escAttr(ln.a)}" data-port="${escAttr(ln.p)}">${t('test.btn')}</button>` +
+                    `<span class="test-result"></span>` +
+                `</div>`;
+            }).join('') + `</div>`;
             // 目标端口列：显示当前生效线路的端口
             const activePort = (lines[activeLine] || lines[0]).p;
 
@@ -436,6 +504,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const action = btn.dataset.action;
         const id = btn.dataset.id;
+
+        if (action === 'test-line') {
+            const li = btn.closest('.line-item');
+            const resultEl = li ? li.querySelector('.test-result') : null;
+            doTest(btn.dataset.addr, btn.dataset.port, resultEl, btn);
+            return;
+        }
 
         if (action === 'delete') {
             if (!confirm(t('toast.confirmDelete'))) return;

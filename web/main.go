@@ -1075,6 +1075,45 @@ func main() {
 			c.JSON(200, gin.H{"rules": rules[start:end], "total": total})
 		})
 
+		// 测试落地连通性（即时拨测，不影响转发规则）
+		api.POST("/api/test", func(c *gin.Context) {
+			var input struct {
+				Addr string `json:"addr"`
+				Port string `json:"port"`
+			}
+			if err := c.ShouldBindJSON(&input); err != nil {
+				c.JSON(400, gin.H{"error": "无效输入"})
+				return
+			}
+			if !validateAddress(input.Addr) || !validatePort(input.Port) {
+				c.JSON(400, gin.H{"error": "地址或端口无效"})
+				return
+			}
+
+			host := strings.Trim(input.Addr, "[]")
+			resolvedIP := ""
+			// 域名先解析，便于展示实际落地 IP；解析失败直接返回
+			if net.ParseIP(host) == nil {
+				ip, err := resolveDomainIP(host)
+				if err != nil {
+					c.JSON(200, gin.H{"ok": false, "error": "域名解析失败: " + err.Error()})
+					return
+				}
+				resolvedIP = ip
+				host = ip
+			}
+
+			start := time.Now()
+			conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, input.Port), 5*time.Second)
+			latency := time.Since(start).Milliseconds()
+			if err != nil {
+				c.JSON(200, gin.H{"ok": false, "error": err.Error(), "resolved_ip": resolvedIP})
+				return
+			}
+			conn.Close()
+			c.JSON(200, gin.H{"ok": true, "latency_ms": latency, "resolved_ip": resolvedIP})
+		})
+
 		// 添加单条规则
 		api.POST("/api/rules", func(c *gin.Context) {
 			var input struct {

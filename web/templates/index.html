@@ -203,22 +203,23 @@
         }
         thead th {
             text-align: left;
-            padding: 10px 16px;
-            font-size: 12px;
+            padding: 9px 12px;
+            font-size: 11.5px;
             font-weight: 600;
             color: var(--text-secondary);
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.3px;
             border-bottom: 1px solid var(--border);
             background: var(--bg-input);
             white-space: nowrap;
         }
         tbody td {
-            padding: 12px 16px;
-            font-size: 14px;
+            padding: 10px 12px;
+            font-size: 13px;
             border-bottom: 1px solid var(--border);
             white-space: nowrap;
             color: var(--text-primary);
+            vertical-align: middle;
         }
         tbody tr { transition: background 0.15s; }
         tbody tr:hover { background: var(--accent-light); }
@@ -493,10 +494,26 @@
         .backup-row input { margin: 0; }
         .backup-row .backup-addr { flex: 2; }
         .backup-row .backup-port { flex: 1; min-width: 90px; }
-        .line-list { display: flex; flex-direction: column; gap: 2px; }
-        .line-item { font-size: 12px; white-space: nowrap; }
-        .line-item.active { font-weight: 700; }
-        .line-item.inactive { opacity: .55; }
+        .line-list { display: flex; flex-direction: column; gap: 4px; }
+        .line-item { display: flex; align-items: center; gap: 6px; font-size: 12.5px; white-space: nowrap; }
+        .line-item .line-dot { font-size: 10px; }
+        .line-item .line-tag { font-size: 10.5px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: var(--bg-input, #f1f5f9); color: var(--text-secondary, #64748b); }
+        .line-item.active .line-tag { background: #dcfce7; color: #166534; }
+        .line-item .line-addr { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .line-item.active { font-weight: 600; }
+        .line-item.inactive { opacity: .6; }
+        .line-item .line-active-mark { color: #16a34a; font-weight: 700; }
+        /* 测试按钮与结果 */
+        .btn-test { padding: 1px 8px; font-size: 11px; border-radius: 5px; border: 1px solid var(--border, #e2e8f0); background: #fff; color: var(--text-secondary, #64748b); cursor: pointer; line-height: 1.6; }
+        .btn-test:hover { background: var(--accent-light, #eef2ff); color: var(--accent, #6366f1); border-color: var(--accent, #6366f1); }
+        .btn-test:disabled { opacity: .6; cursor: default; }
+        .test-result { font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+        .test-result.ok { color: #16a34a; }
+        .test-result.fail { color: #dc2626; }
+        .test-result.testing { color: var(--text-muted, #94a3b8); }
+        /* 表单内地址+测试按钮排版 */
+        .addr-with-test { display: flex; gap: 8px; align-items: stretch; }
+        .addr-with-test input { flex: 1; }
     </style>
 </head>
 <body>
@@ -641,7 +658,11 @@
                     </div>
                     <div class="form-group">
                         <label id="addrLabel">目标 IPv4 地址</label>
-                        <input type="text" id="remoteAddr" placeholder="如: 6.6.6.6">
+                        <div class="addr-with-test">
+                            <input type="text" id="remoteAddr" placeholder="如: 6.6.6.6">
+                            <button type="button" class="btn-test" id="testMainBtn" data-i18n="test.btn">测试</button>
+                        </div>
+                        <span class="test-result" id="testMainResult" style="margin-top:4px;display:inline-block"></span>
                     </div>
                     <div class="form-group">
                         <label data-i18n="add.targetPort">目标端口</label>
@@ -725,7 +746,11 @@
             </div>
             <div class="form-group" style="margin-bottom:14px">
                 <label>目标地址</label>
-                <input type="text" id="editRemoteAddr" placeholder="IPv4/IPv6/域名">
+                <div class="addr-with-test">
+                    <input type="text" id="editRemoteAddr" placeholder="IPv4/IPv6/域名">
+                    <button type="button" class="btn-test" id="editTestMainBtn" data-i18n="test.btn">测试</button>
+                </div>
+                <span class="test-result" id="editTestMainResult" style="margin-top:4px;display:inline-block"></span>
             </div>
             <div class="form-group" style="margin-bottom:14px">
                 <label>目标端口</label>
