@@ -29,6 +29,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'add.localPort': '本机端口', 'add.targetPort': '目标端口',
             'add.note': '备注（可选）', 'add.quota': '月配额 GB（可选）',
             'add.resetDay': '重置日（可选）', 'add.submit': '添加规则',
+            'add.backupAddr': '备用地址（可选）', 'add.backupPort': '备用端口（可选）',
+            'edit.backupAddr': '备用地址（可选，留空则不启用）', 'edit.backupPort': '备用端口（可选）',
             // Batch
             'batch.title': '批量添加转发规则', 'batch.submit': '批量添加',
             // Edit modal
@@ -40,6 +42,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'status.active': '正常', 'status.suspended': '已封停',
             'status.unreachable': '不通', 'status.checkingShort': '检测中',
             'status.exceeded': '已超额',
+            'status.onBackup': '备用中', 'status.onPrimary': '主线路',
+            'rules.backupTag': '备用', 'rules.primaryDown': '主线路不通',
             // Toast messages
             'toast.addOk': '{proto} 规则已添加', 'toast.editOk': '规则已更新',
             'toast.deleteOk': '规则已删除', 'toast.resetOk': '流量已重置',
@@ -86,6 +90,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'add.localPort': 'Local Port', 'add.targetPort': 'Target Port',
             'add.note': 'Note (optional)', 'add.quota': 'Monthly Quota GB (optional)',
             'add.resetDay': 'Reset Day (optional)', 'add.submit': 'Add Rule',
+            'add.backupAddr': 'Backup Addr (optional)', 'add.backupPort': 'Backup Port (optional)',
+            'edit.backupAddr': 'Backup Addr (optional, blank = disabled)', 'edit.backupPort': 'Backup Port (optional)',
             'batch.title': 'Batch Add Rules', 'batch.submit': 'Batch Add',
             'edit.title': 'Edit Forward Rule',
             'pwd.title': 'Change Password', 'pwd.confirm': 'Confirm',
@@ -93,6 +99,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'status.active': 'Active', 'status.suspended': 'Suspended',
             'status.unreachable': 'Unreachable', 'status.checkingShort': 'Checking',
             'status.exceeded': 'Exceeded',
+            'status.onBackup': 'On Backup', 'status.onPrimary': 'Primary',
+            'rules.backupTag': 'Backup', 'rules.primaryDown': 'Primary down',
             'toast.addOk': '{proto} rule added', 'toast.editOk': 'Rule updated',
             'toast.deleteOk': 'Rule deleted', 'toast.resetOk': 'Traffic reset',
             'toast.batchOk': '{n} rules added', 'toast.batchPartial': '{n} added, {f} failed',
@@ -279,6 +287,9 @@ document.addEventListener('DOMContentLoaded', () => {
         rulesBody.innerHTML = allRules.map((rule, idx) => {
             const globalIdx = (currentPage - 1) * pageSize + idx + 1;
             const addr = rule.remote_addr || '';
+            const backupAddr = rule.backup_addr || '';
+            const backupPort = rule.backup_port || '';
+            const usingBackup = rule.using_backup === true;
             const v6 = isIPv6(addr);
             const tag = v6
                 ? '<span class="ip-tag v6">IPv6</span>'
@@ -319,10 +330,22 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 statusTag = `<span class="status-tag checking">${t('status.checkingShort')}</span>`;
             }
+            // 已切到备用线路时追加醒目徽标
+            if (usingBackup) {
+                statusTag += `<span class="status-tag" style="background:#fef3c7;color:#92400e;margin-left:4px">${t('status.onBackup')}</span>`;
+            }
+
+            // 目标地址单元格：有备用时显示主/备两行，当前生效线路高亮
+            let addrCell = addr;
+            if (backupAddr) {
+                addrCell = `
+                    <div style="${usingBackup ? 'opacity:.5' : 'font-weight:600'}">${addr}${usingBackup ? '' : ' ◀'}</div>
+                    <div style="font-size:11px;margin-top:2px;${usingBackup ? 'color:#b45309;font-weight:600' : 'color:var(--text-muted);opacity:.7'}">${t('rules.backupTag')}: ${backupAddr}:${backupPort}${usingBackup ? ' ◀' : ''}</div>`;
+            }
 
             // 操作按钮（增加重置按钮）
             let actionsHtml = `
-                <button class="btn btn-outline btn-sm" data-action="edit" data-id="${rule.id}" data-localport="${rule.local_port}" data-addr="${addr}" data-port="${rule.remote_port}" data-note="${rule.note || ''}" data-quota="${quotaGB}" data-resetday="${resetDay}">${t('rules.edit')}</button>
+                <button class="btn btn-outline btn-sm" data-action="edit" data-id="${rule.id}" data-localport="${rule.local_port}" data-addr="${addr}" data-port="${rule.remote_port}" data-backupaddr="${backupAddr}" data-backupport="${backupPort}" data-note="${rule.note || ''}" data-quota="${quotaGB}" data-resetday="${resetDay}">${t('rules.edit')}</button>
                 <button class="btn btn-danger btn-sm" data-action="delete" data-id="${rule.id}">${t('rules.delete')}</button>`;
             if (quotaGB > 0) {
                 actionsHtml += `<button class="btn btn-warning btn-sm" data-action="reset" data-id="${rule.id}">${t('rules.reset')}</button>`;
@@ -332,7 +355,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${globalIdx}</td>
                 <td><strong>${rule.local_port}</strong></td>
                 <td>${tag}</td>
-                <td>${addr}</td>
+                <td>${addrCell}</td>
                 <td>${rule.remote_port}</td>
                 <td>TCP + UDP</td>
                 <td>${trafficHtml}</td>
@@ -382,6 +405,8 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('editLocalPort').value = btn.dataset.localport || '';
             document.getElementById('editRemoteAddr').value = btn.dataset.addr || '';
             document.getElementById('editRemotePort').value = btn.dataset.port || '';
+            document.getElementById('editBackupAddr').value = btn.dataset.backupaddr || '';
+            document.getElementById('editBackupPort').value = btn.dataset.backupport || '';
             document.getElementById('editRuleNote').value = btn.dataset.note || '';
             document.getElementById('editQuotaGB').value = btn.dataset.quota || '0';
             document.getElementById('editResetDay').value = btn.dataset.resetday || '0';
@@ -419,6 +444,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const localPort = document.getElementById('editLocalPort').value.trim();
         const remoteAddr = document.getElementById('editRemoteAddr').value.trim();
         const remotePort = document.getElementById('editRemotePort').value.trim();
+        let backupAddr = document.getElementById('editBackupAddr').value.trim();
+        const backupPort = document.getElementById('editBackupPort').value.trim();
         const note = document.getElementById('editRuleNote').value.trim();
         const quotaGB = parseFloat(document.getElementById('editQuotaGB').value) || 0;
         const resetDay = parseInt(document.getElementById('editResetDay').value) || 0;
@@ -426,6 +453,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!localPort || !remoteAddr || !remotePort) {
             showToast(t('toast.editEmpty'), 'error');
             return;
+        }
+        // 备用地址若是 IPv6 且未加方括号则自动包裹
+        if (backupAddr && backupAddr.includes(':') && !backupAddr.startsWith('[')) {
+            backupAddr = `[${backupAddr}]`;
         }
 
         try {
@@ -436,6 +467,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     local_port: localPort,
                     remote_addr: remoteAddr,
                     remote_port: remotePort,
+                    backup_addr: backupAddr,
+                    backup_port: backupPort,
                     note: note,
                     quota_gb: quotaGB,
                     reset_day: resetDay
@@ -458,6 +491,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const lp = document.getElementById('localPort').value.trim();
         let ra = document.getElementById('remoteAddr').value.trim();
         const rp = document.getElementById('remotePort').value.trim();
+        let backupAddr = document.getElementById('backupAddr').value.trim();
+        const backupPort = document.getElementById('backupPort').value.trim();
         const note = document.getElementById('ruleNote').value.trim();
         const quota = parseFloat(document.getElementById('ruleQuota').value) || 0;
         const resetDay = parseInt(document.getElementById('ruleResetDay').value) || 0;
@@ -471,6 +506,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (selectedProto === 'ipv6' && !ra.startsWith('[')) {
             ra = `[${ra}]`;
         }
+        // 备用地址若是 IPv6 且未加方括号则自动包裹
+        if (backupAddr && backupAddr.includes(':') && !backupAddr.startsWith('[')) {
+            backupAddr = `[${backupAddr}]`;
+        }
 
         try {
             const res = await fetch('/api/rules', {
@@ -480,6 +519,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     local_port: lp,
                     remote_addr: ra,
                     remote_port: rp,
+                    backup_addr: backupAddr,
+                    backup_port: backupPort,
                     note: note,
                     quota_gb: quota,
                     reset_day: resetDay
@@ -492,6 +533,8 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('localPort').value = '';
             document.getElementById('remoteAddr').value = '';
             document.getElementById('remotePort').value = '';
+            document.getElementById('backupAddr').value = '';
+            document.getElementById('backupPort').value = '';
             document.getElementById('ruleNote').value = '';
             document.getElementById('ruleQuota').value = '';
             document.getElementById('ruleResetDay').value = '';

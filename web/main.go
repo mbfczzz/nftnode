@@ -45,14 +45,29 @@ type ForwardRule struct {
 	LocalPort      string  `json:"local_port"`
 	RemoteAddr     string  `json:"remote_addr"`
 	RemotePort     string  `json:"remote_port"`
+	BackupAddr     string  `json:"backup_addr,omitempty"` // 备用落地地址（IPv4/IPv6/域名），可选
+	BackupPort     string  `json:"backup_port,omitempty"` // 备用落地端口
 	Note           string  `json:"note"`
 	UsedBytes      uint64  `json:"used_bytes"`
 	QuotaGB        float64 `json:"quota_gb"`
 	Enabled        bool    `json:"enabled"`
 	ResetDay       int     `json:"reset_day"`       // 每月几号重置 (1-31)，0 不自动重置
 	LastResetTime  string  `json:"last_reset_time"` // 上次重置的月份 "2026-04"
-	Reachable      *bool   `json:"reachable,omitempty"` // 运行时：落地机是否可达（不持久化）
-	LastResolvedIP string  `json:"last_resolved_ip,omitempty"` // 运行时：上次解析的 IP 缓存
+	Reachable      *bool   `json:"reachable,omitempty"`             // 运行时：当前生效线路是否可达（不持久化）
+	LastResolvedIP string  `json:"last_resolved_ip,omitempty"`      // 主线路：上次解析的 IP 缓存
+	BackupLastResolvedIP string `json:"backup_last_resolved_ip,omitempty"` // 备用线路：上次解析的 IP 缓存
+	UsingBackup    bool    `json:"using_backup"`           // 运行时：当前是否切到备用线路（不持久化）
+	PrimaryUp      *bool   `json:"primary_up,omitempty"`   // 运行时：主线路是否可达
+	BackupUp       *bool   `json:"backup_up,omitempty"`    // 运行时：备用线路是否可达
+}
+
+// activeTarget 返回当前生效线路的（地址, 端口, 已缓存解析IP）。
+// 主优先：仅当切到备用且配置了备用时才用备用线路。
+func (r *ForwardRule) activeTarget() (addr, port, cachedIP string) {
+	if r.UsingBackup && r.BackupAddr != "" {
+		return r.BackupAddr, r.BackupPort, r.BackupLastResolvedIP
+	}
+	return r.RemoteAddr, r.RemotePort, r.LastResolvedIP
 }
 
 type PanelConfig struct {
@@ -129,6 +144,15 @@ func validateAddress(addr string) bool {
 	return false
 }
 
+// validateBackup 校验备用线路：留空表示不启用（合法）；
+// 一旦填写则地址与端口必须同时存在且合法。
+func validateBackup(addr, port string) bool {
+	if addr == "" && port == "" {
+		return true // 不配置备用线路
+	}
+	return validateAddress(addr) && validatePort(port)
+}
+
 // 防止 nftables 配置注入：只允许安全字符
 func sanitizeForNft(s string) string {
 	safe := regexp.MustCompile(`[^a-zA-Z0-9\.\:\[\]\-\_]`)
@@ -161,6 +185,51 @@ func resolveDomainIP(host string) (string, error) {
 		return v6[0], nil
 	}
 	return "", fmt.Errorf("域名 %s 无可用 A/AAAA 记录", host)
+}
+
+// resolveAndCache 解析 addr（若为域名）并把结果写入 *cache。
+//   - addr 为纯 IP 时直接返回 false（无需解析）
+//   - 解析成功且 IP 变化 → 更新缓存，返回 true（需要重载 nft）
+//   - 解析失败 → 清空缓存（不再沿用旧 IP 兜底），缓存原本非空时返回 true
+func resolveAndCache(addr string, cache *string, label string) bool {
+	if addr == "" {
+		return false
+	}
+	host := strings.Trim(addr, "[]")
+	if net.ParseIP(host) != nil {
+		return false // 是 IP，不需要解析
+	}
+	if resolved, err := resolveDomainIP(host); err == nil {
+		if *cache != resolved {
+			log.Printf("[DNS] %s域名 %s 目标 IP 变更: %s -> %s", label, addr, *cache, resolved)
+			*cache = resolved
+			return true
+		}
+		return false
+	}
+	// 解析失败：清空缓存，触发重载使该（线路）规则被跳过
+	if *cache != "" {
+		log.Printf("[DNS] %s域名 %s 解析失败，清空缓存 IP %s", label, addr, *cache)
+		*cache = ""
+		return true
+	}
+	log.Printf("[DNS] %s域名 %s 解析失败", label, addr)
+	return false
+}
+
+// dialOK 做一次 TCP 拨测，3 秒超时，判断落地端口是否可连通。
+// addr 可为 IP 或域名（域名由 DialTimeout 自行解析）。
+func dialOK(addr, port string) bool {
+	if addr == "" || port == "" {
+		return false
+	}
+	cleanAddr := strings.Trim(addr, "[]")
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(cleanAddr, port), 3*time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
 }
 
 // --- 配置加载 ---
@@ -308,11 +377,15 @@ func LoadRules() error {
 
 // 调用方必须持有 mu 锁
 func saveRulesLocked() error {
-	// 落盘前复制并清空运行时字段 Reachable，避免重启后残留旧拨测状态
+	// 落盘前复制并清空运行时字段，避免重启后残留旧拨测/切换状态
+	// （主优先：重启后默认回到主线路，由后台拨测在 60s 内重新决策）
 	cp := make([]ForwardRule, len(rules))
 	copy(cp, rules)
 	for i := range cp {
 		cp[i].Reachable = nil
+		cp[i].PrimaryUp = nil
+		cp[i].BackupUp = nil
+		cp[i].UsingBackup = false
 	}
 	data, err := json.MarshalIndent(cp, "", "  ")
 	if err != nil {
@@ -348,24 +421,32 @@ func generateNftConfLocked() error {
 			continue // 超额封停或被禁用的规则跳过其 NAT，拦截网络
 		}
 
-		targetIP := strings.Trim(rule.RemoteAddr, "[]")
+		// 选取当前生效线路（主优先，主挂了才切备用）
+		activeAddr, activePort, activeCachedIP := rule.activeTarget()
+
+		targetIP := strings.Trim(activeAddr, "[]")
 		if net.ParseIP(targetIP) == nil {
 			// 目标是域名：内核只认 IP，这里替换为解析后的 IP
-			if rule.LastResolvedIP != "" && net.ParseIP(rule.LastResolvedIP) != nil {
-				targetIP = rule.LastResolvedIP // 优先用缓存（含后台定时刷新的结果）
+			if activeCachedIP != "" && net.ParseIP(activeCachedIP) != nil {
+				targetIP = activeCachedIP // 优先用缓存（含后台定时刷新的结果）
 			} else if ip, err := resolveDomainIP(targetIP); err == nil {
 				targetIP = ip
-				rule.LastResolvedIP = ip // 首次解析成功，写入缓存（后续会持久化到 rules.json）
+				// 首次解析成功，写入对应线路的缓存
+				if rule.UsingBackup && rule.BackupAddr != "" {
+					rule.BackupLastResolvedIP = ip
+				} else {
+					rule.LastResolvedIP = ip
+				}
 			} else {
-				log.Printf("[警告] 规则 %s 的目标域名 %s 解析失败，跳过此转发规则: %v", rule.ID, rule.RemoteAddr, err)
-				buf.WriteString(fmt.Sprintf("        # Rule %s (跳过: 域名 %s 解析失败)\n\n", rule.ID, rule.RemoteAddr))
+				log.Printf("[警告] 规则 %s 的目标域名 %s 解析失败，跳过此转发规则: %v", rule.ID, activeAddr, err)
+				buf.WriteString(fmt.Sprintf("        # Rule %s (跳过: 域名 %s 解析失败)\n\n", rule.ID, activeAddr))
 				continue
 			}
 		}
 
 		// 安全: 经过校验的值再额外做一次 sanitize
 		lport := sanitizeForNft(rule.LocalPort)
-		rport := sanitizeForNft(rule.RemotePort)
+		rport := sanitizeForNft(activePort)
 		addr := sanitizeForNft(targetIP)
 
 		noteComment := ""
@@ -409,18 +490,19 @@ func generateNftConfLocked() error {
 			continue
 		}
 
-		targetIP := strings.Trim(rule.RemoteAddr, "[]")
+		activeAddr, activePort, activeCachedIP := rule.activeTarget()
+		targetIP := strings.Trim(activeAddr, "[]")
 		if net.ParseIP(targetIP) == nil {
 			// 域名规则：仅在已有有效缓存 IP 时才生成统计规则；尚未解析成功的跳过，防止 nft 报错
-			if rule.LastResolvedIP != "" && net.ParseIP(rule.LastResolvedIP) != nil {
-				targetIP = rule.LastResolvedIP
+			if activeCachedIP != "" && net.ParseIP(activeCachedIP) != nil {
+				targetIP = activeCachedIP
 			} else {
 				continue
 			}
 		}
 
 		lport := sanitizeForNft(rule.LocalPort)
-		rport := sanitizeForNft(rule.RemotePort)
+		rport := sanitizeForNft(activePort)
 		addr := sanitizeForNft(targetIP)
 		ipFamily := "ip"
 		if isIPv6(targetIP) {
@@ -684,41 +766,44 @@ func main() {
 			// 用 rule.ID 作为索引键，避免拨测期间增删规则导致下标错位
 			mu.Lock()
 			type probeTarget struct {
-				id   string
-				addr string
-				port string
+				id         string
+				addr, port string
+				backupAddr, backupPort string
 			}
 			targets := make([]probeTarget, len(rules))
 			for i, rule := range rules {
-				targets[i] = probeTarget{rule.ID, rule.RemoteAddr, rule.RemotePort}
+				targets[i] = probeTarget{rule.ID, rule.RemoteAddr, rule.RemotePort, rule.BackupAddr, rule.BackupPort}
 			}
 			mu.Unlock()
 
 			type probeResult struct {
 				id        string
-				reachable bool
+				primaryUp bool
+				hasBackup bool
+				backupUp  bool
 			}
 			results := make(chan probeResult, len(targets))
 			for _, t := range targets {
-				go func(id, addr, port string) {
-					// 移除 IPv6 方括号
-					cleanAddr := strings.Trim(addr, "[]")
-					target := net.JoinHostPort(cleanAddr, port)
-					conn, err := net.DialTimeout("tcp", target, 3*time.Second)
-					if err == nil {
-						conn.Close()
-						results <- probeResult{id, true}
-					} else {
-						results <- probeResult{id, false}
+				go func(t probeTarget) {
+					primaryUp := dialOK(t.addr, t.port)
+					hasBackup := t.backupAddr != ""
+					backupUp := false
+					if hasBackup {
+						backupUp = dialOK(t.backupAddr, t.backupPort)
 					}
-				}(t.id, t.addr, t.port)
+					results <- probeResult{t.id, primaryUp, hasBackup, backupUp}
+				}(t)
 			}
 
 			// 收集拨测结果（按规则 ID 索引）
-			reachMap := make(map[string]bool)
+			primaryReach := make(map[string]bool)
+			backupReach := make(map[string]bool)
+			hasBackupMap := make(map[string]bool)
 			for j := 0; j < len(targets); j++ {
 				r := <-results
-				reachMap[r.id] = r.reachable
+				primaryReach[r.id] = r.primaryUp
+				backupReach[r.id] = r.backupUp
+				hasBackupMap[r.id] = r.hasBackup
 			}
 
 			counterMap := parseNftCounters(out)
@@ -733,24 +818,13 @@ func main() {
 
 			for i := range rules {
 				// 1. 动态域名解析与变更检测（DDNS/CDN 目标 IP 变化时自动热重载）
-				domain := strings.Trim(rules[i].RemoteAddr, "[]")
-				if net.ParseIP(domain) == nil {
-					// 这是一个域名，后台定时解析其最新 IP（resolveDomainIP 已做超时/优先v4）
-					if resolved, err := resolveDomainIP(domain); err == nil {
-						if rules[i].LastResolvedIP != resolved {
-							log.Printf("[DNS] 域名 %s 目标 IP 发生变更: %s -> %s", rules[i].RemoteAddr, rules[i].LastResolvedIP, resolved)
-							rules[i].LastResolvedIP = resolved
-							changed = true
-						}
-					} else {
-						// 解析失败：清空缓存 IP，触发重载使该规则被跳过（不再沿用旧 IP 兜底）
-						if rules[i].LastResolvedIP != "" {
-							log.Printf("[DNS] 后台定时解析域名 %s 失败，清空缓存 IP %s 并跳过该转发: %v", rules[i].RemoteAddr, rules[i].LastResolvedIP, err)
-							rules[i].LastResolvedIP = ""
-							changed = true
-						} else {
-							log.Printf("[DNS] 后台定时解析域名 %s 失败: %v", rules[i].RemoteAddr, err)
-						}
+				// 主线路与备用线路的域名都做动态解析（DDNS/CDN 目标 IP 变化时自动热重载）
+				if resolveAndCache(rules[i].RemoteAddr, &rules[i].LastResolvedIP, "主") {
+					changed = true
+				}
+				if rules[i].BackupAddr != "" {
+					if resolveAndCache(rules[i].BackupAddr, &rules[i].BackupLastResolvedIP, "备") {
+						changed = true
 					}
 				}
 
@@ -768,11 +842,35 @@ func main() {
 					rules[i].UsedBytes += thisDelta
 				}
 
-				// 更新连通性状态：落地可达 且 FORWARD 链未被阻断
-				// 按规则 ID 匹配，避免拨测期间增删规则导致索引错位
-				if reachable, ok := reachMap[rules[i].ID]; ok {
-					r := reachable && !forwardBlocked
+				// 主/备故障切换 + 连通性状态更新（按规则 ID 匹配，避免增删导致错位）
+				if primaryUp, ok := primaryReach[rules[i].ID]; ok {
+					hasBackup := hasBackupMap[rules[i].ID]
+					backupUp := backupReach[rules[i].ID]
+
+					// 主优先：主通用主；主断且备用通才切备用；都断则维持主（规则会因不可达而显示异常）
+					newUsing := !primaryUp && hasBackup && backupUp
+					if newUsing != rules[i].UsingBackup {
+						if newUsing {
+							log.Printf("[切换] 规则 %s (端口 %s) 主线路不可达，切换到备用线路 %s:%s", rules[i].ID, rules[i].LocalPort, rules[i].BackupAddr, rules[i].BackupPort)
+						} else {
+							log.Printf("[切换] 规则 %s (端口 %s) 主线路恢复，切回主线路 %s:%s", rules[i].ID, rules[i].LocalPort, rules[i].RemoteAddr, rules[i].RemotePort)
+						}
+						rules[i].UsingBackup = newUsing
+						changed = true // 触发 nft 重载，使新线路生效
+					}
+
+					// 运行时状态：当前生效线路是否可达
+					activeUp := primaryUp || (hasBackup && backupUp)
+					r := activeUp && !forwardBlocked
 					rules[i].Reachable = &r
+					p := primaryUp
+					rules[i].PrimaryUp = &p
+					if hasBackup {
+						b := backupUp
+						rules[i].BackupUp = &b
+					} else {
+						rules[i].BackupUp = nil
+					}
 				}
 
 				// 账期自动重置：当月未重置过 且 今天已到达重置日（或月末兜底）
@@ -906,6 +1004,8 @@ func main() {
 				LocalPort  string  `json:"local_port"`
 				RemoteAddr string  `json:"remote_addr"`
 				RemotePort string  `json:"remote_port"`
+				BackupAddr string  `json:"backup_addr"`
+				BackupPort string  `json:"backup_port"`
 				Note       string  `json:"note"`
 				QuotaGB    float64 `json:"quota_gb"`
 				ResetDay   int     `json:"reset_day"`
@@ -928,6 +1028,11 @@ func main() {
 				c.JSON(400, gin.H{"error": "目标地址无效，请输入合法的 IPv4/IPv6/域名"})
 				return
 			}
+			// 备用线路可选：填了就必须地址+端口都合法
+			if !validateBackup(input.BackupAddr, input.BackupPort) {
+				c.JSON(400, gin.H{"error": "备用线路无效：地址和端口需同时填写且合法 (IPv4/IPv6/域名 + 1-65535)"})
+				return
+			}
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -948,6 +1053,8 @@ func main() {
 				LocalPort:  input.LocalPort,
 				RemoteAddr: input.RemoteAddr,
 				RemotePort: input.RemotePort,
+				BackupAddr: input.BackupAddr,
+				BackupPort: input.BackupPort,
 				Note:       input.Note,
 				QuotaGB:    input.QuotaGB,
 				ResetDay:   input.ResetDay,
@@ -1136,6 +1243,8 @@ func main() {
 				LocalPort  string  `json:"local_port"`
 				RemoteAddr string  `json:"remote_addr"`
 				RemotePort string  `json:"remote_port"`
+				BackupAddr string  `json:"backup_addr"`
+				BackupPort string  `json:"backup_port"`
 				Note       string  `json:"note"`
 				QuotaGB    float64 `json:"quota_gb"`
 				ResetDay   int     `json:"reset_day"`
@@ -1156,6 +1265,11 @@ func main() {
 			}
 			if input.RemoteAddr != "" && !validateAddress(input.RemoteAddr) {
 				c.JSON(400, gin.H{"error": "目标地址无效，请输入合法的 IPv4/IPv6/域名"})
+				return
+			}
+			// 备用线路：允许清空（两者都空）；否则地址+端口都要合法
+			if !validateBackup(input.BackupAddr, input.BackupPort) {
+				c.JSON(400, gin.H{"error": "备用线路无效：地址和端口需同时填写且合法 (IPv4/IPv6/域名 + 1-65535)"})
 				return
 			}
 
@@ -1184,6 +1298,14 @@ func main() {
 					}
 					if input.RemotePort != "" {
 						rules[i].RemotePort = input.RemotePort
+					}
+					// 备用线路允许清空，所以始终覆盖；清空时一并复位运行时切换状态与缓存
+					rules[i].BackupAddr = input.BackupAddr
+					rules[i].BackupPort = input.BackupPort
+					if input.BackupAddr == "" {
+						rules[i].UsingBackup = false
+						rules[i].BackupLastResolvedIP = ""
+						rules[i].BackupUp = nil
 					}
 					// 备注允许清空，所以始终更新
 					rules[i].Note = input.Note

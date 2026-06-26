@@ -635,6 +635,14 @@
                         <input type="number" id="remotePort" placeholder="如: 6666" min="1" max="65535">
                     </div>
                     <div class="form-group">
+                        <label id="backupAddrLabel" data-i18n="add.backupAddr">备用地址（可选）</label>
+                        <input type="text" id="backupAddr" placeholder="如: backup.example.com">
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="add.backupPort">备用端口（可选）</label>
+                        <input type="number" id="backupPort" placeholder="主线路挂掉时自动启用" min="1" max="65535">
+                    </div>
+                    <div class="form-group">
                         <label data-i18n="add.note">备注（可选）</label>
                         <input type="text" id="ruleNote" placeholder="如: 东京节点">
                     </div>
@@ -706,6 +714,14 @@
             <div class="form-group" style="margin-bottom:14px">
                 <label>目标端口</label>
                 <input type="number" id="editRemotePort" placeholder="1-65535" min="1" max="65535">
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+                <label data-i18n="edit.backupAddr">备用地址（可选，留空则不启用）</label>
+                <input type="text" id="editBackupAddr" placeholder="IPv4/IPv6/域名">
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+                <label data-i18n="edit.backupPort">备用端口（可选）</label>
+                <input type="number" id="editBackupPort" placeholder="1-65535" min="1" max="65535">
             </div>
             <div class="form-group" style="margin-bottom:14px">
                 <label>备注（可选）</label>
